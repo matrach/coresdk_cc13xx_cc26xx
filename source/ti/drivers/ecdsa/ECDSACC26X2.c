@@ -127,6 +127,101 @@ static void ECDSACC26X2_internalCallbackFxn (ECDSA_Handle handle,
 }
 
 /*
+ *  ======== ECDSACC26X2_reverseBufferBytewise ========
+ */
+void ECDSACC26X2_reverseBufferBytewise(void * buffer, size_t bufferLength) {
+    uint8_t *bufferLow = buffer;
+    uint8_t *bufferHigh = bufferLow + bufferLength - 1;
+    uint8_t tmp;
+
+    while (bufferLow < bufferHigh) {
+        tmp = *bufferLow;
+        *bufferLow = *bufferHigh;
+        *bufferHigh = tmp;
+        bufferLow++;
+        bufferHigh--;
+    }
+}
+
+/**
+ *  ======== ECDSACC26X2_reverseCopyPad ========
+ *
+ *  @brief Reverses, copies, and pads an array from SRAM or FLASH to PKA RAM.
+ *
+ *  The source array is reversed byte-wise and copied into the destination
+ *  array. Any remaining bytes up to the next word boundary are padded.
+ *  The destination array must be an array of length
+ *  CEIL(sourceLength / sizeof(uint32_t)) * sizeof(uint32_t).
+ *
+ *  @param source       Source array
+ *
+ *  @param destination  Destination array
+ *
+ *  @param sourceLength Length of the source array
+ */
+static void ECDSACC26X2_reverseCopyPad(const void *source, void *destination, size_t sourceLength) {
+    uint32_t i;
+    uint8_t remainder;
+    uint32_t temp;
+    uint8_t *tempBytePointer;
+    const uint8_t *sourceBytePointer;
+
+    remainder = sourceLength % sizeof(uint32_t);
+    temp = 0;
+    tempBytePointer = (uint8_t *)&temp;
+    sourceBytePointer = (uint8_t *)source;
+
+    /* Copy source to destination starting at the end of source and the
+     * beginning of destination.
+     * We assemble each word in byte-reversed order and write one word at a
+     * time since the PKA_RAM requires word-aligned reads and writes.
+     */
+
+    for (i = 0; i < sourceLength / sizeof(uint32_t); i++) {
+            uint32_t sourceOffset = sourceLength - 1 - sizeof(uint32_t) * i;
+
+            tempBytePointer[3] = sourceBytePointer[sourceOffset - 3];
+            tempBytePointer[2] = sourceBytePointer[sourceOffset - 2];
+            tempBytePointer[1] = sourceBytePointer[sourceOffset - 1];
+            tempBytePointer[0] = sourceBytePointer[sourceOffset - 0];
+
+            HWREG((uint32_t)destination + sizeof(uint32_t) * i) = temp;
+    }
+
+    /* Reset to 0 so we do not have to zero-out individual bytes */
+    temp = 0;
+
+    /* If sourceLength is not a word-multiple, we need to copy over the
+     * remaining bytes and zero pad the word we are writing to PKA_RAM.
+     */
+    if (remainder == 1) {
+
+        tempBytePointer[0] = sourceBytePointer[0];
+
+        /* i is reused from the loop above. This write  zero-pads the
+         * destination buffer to word-length.
+         */
+        HWREG((uint32_t)destination + sizeof(uint32_t) * i) = temp;
+    }
+    else if (remainder == 2) {
+
+        tempBytePointer[0] = sourceBytePointer[1];
+        tempBytePointer[1] = sourceBytePointer[0];
+
+        HWREG((uint32_t)destination + sizeof(uint32_t) * i) = temp;
+    }
+    else if (remainder == 3) {
+
+        tempBytePointer[0] = sourceBytePointer[2];
+        tempBytePointer[1] = sourceBytePointer[1];
+        tempBytePointer[2] = sourceBytePointer[0];
+
+        HWREG((uint32_t)destination + sizeof(uint32_t) * i) = temp;
+    }
+
+}
+
+/*
  *  ======== ECDSACC26X2_hwiFxn ========
  */
 static void ECDSACC26X2_hwiFxn (uintptr_t arg0) {
@@ -339,7 +434,7 @@ static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_SIGN_COMPUTE_PRIVATE_KEY_X_R:
 
-            CryptoUtils_reverseCopyPad(object->operation.sign->myPrivateKey->u.plaintext.keyMaterial,
+            ECDSACC26X2_reverseCopyPad(object->operation.sign->myPrivateKey->u.plaintext.keyMaterial,
                                        SCRATCH_PRIVATE_KEY,
                                        object->operation.sign->curve->length);
 
@@ -364,7 +459,7 @@ static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
         case ECDSACC26X2_FSM_SIGN_ADD_HASH:
 
             /* Convert hash from OS format to little-endian integer */
-            CryptoUtils_reverseCopyPad(object->operation.verify->hash,
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->hash,
                                        SCRATCH_BUFFER_1,
                                        object->operation.verify->curve->length);
 
@@ -424,11 +519,11 @@ static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
                                               resultAddress);
 
             /* Convert r from little-endian integer to OS format*/
-            CryptoUtils_reverseBufferBytewise(object->operation.sign->r,
+            ECDSACC26X2_reverseBufferBytewise(object->operation.sign->r,
                                               object->operation.sign->curve->length);
 
             /* Convert s from little-endian integer to OS format*/
-            CryptoUtils_reverseBufferBytewise(object->operation.sign->s,
+            ECDSACC26X2_reverseBufferBytewise(object->operation.sign->s,
                                               object->operation.sign->curve->length);
 
 
@@ -461,7 +556,7 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
         case ECDSACC26X2_FSM_VERIFY_R_S_IN_RANGE:
 
             /* Convert r from OS format to little-endian integer */
-            CryptoUtils_reverseCopyPad(object->operation.verify->r,
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->r,
                                        SCRATCH_BUFFER_0,
                                        object->operation.verify->curve->length);
 
@@ -478,7 +573,7 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
             }
 
             /* Convert s from OS format to little-endian integer */
-            CryptoUtils_reverseCopyPad(object->operation.verify->s,
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->s,
                                        SCRATCH_BUFFER_0,
                                        object->operation.verify->curve->length);
 
@@ -499,12 +594,12 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_VALIDATE_PUBLIC_KEY:
 
-            CryptoUtils_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
                                         + OCTET_STRING_OFFSET,
                                        SCRATCH_PUBLIC_X,
                                        object->operation.verify->curve->length);
 
-            CryptoUtils_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
                                         + OCTET_STRING_OFFSET
                                         + object->operation.verify->curve->length,
                                        SCRATCH_PUBLIC_Y,
@@ -524,7 +619,7 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
         case ECDSACC26X2_FSM_VERIFY_COMPUTE_S_INV:
 
             /* Convert s from OS format to little-endian integer */
-            CryptoUtils_reverseCopyPad(object->operation.verify->s,
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->s,
                                        SCRATCH_BUFFER_0,
                                        object->operation.verify->curve->length);
 
@@ -547,7 +642,7 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
         case ECDSACC26X2_FSM_VERIFY_MULT_S_INV_HASH:
 
             /* Convert hash from OS format to little-endian integer */
-            CryptoUtils_reverseCopyPad(object->operation.verify->hash,
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->hash,
                                        SCRATCH_BUFFER_0,
                                        object->operation.verify->curve->length);
 
@@ -615,7 +710,7 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
         case ECDSACC26X2_FSM_VERIFY_MULT_S_INV_R:
 
             /* Convert r from OS format to little-endian integer */
-            CryptoUtils_reverseCopyPad(object->operation.verify->r,
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->r,
                                        SCRATCH_PRIVATE_KEY,
                                        object->operation.verify->curve->length);
 
@@ -659,12 +754,12 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_MULT_PUB_KEY:
 
-            CryptoUtils_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
                                         + OCTET_STRING_OFFSET,
                                        SCRATCH_PUBLIC_X,
                                        object->operation.verify->curve->length);
 
-            CryptoUtils_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
                                         + OCTET_STRING_OFFSET
                                         + object->operation.verify->curve->length,
                                        SCRATCH_PUBLIC_Y,
@@ -732,7 +827,7 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_COMPARE_RESULT_R:
 
-            CryptoUtils_reverseCopyPad(object->operation.verify->r,
+            ECDSACC26X2_reverseCopyPad(object->operation.verify->r,
                                        SCRATCH_PRIVATE_KEY,
                                        object->operation.verify->curve->length);
 

@@ -3,7 +3,7 @@
 *
 *  Description: RF core patch for multi-protocol support (all available API command sets) in CC13x2 and CC26x2
 *
-*  Copyright (c) 2015-2020, Texas Instruments Incorporated
+*  Copyright (c) 2015-2019, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -67,23 +67,21 @@ extern "C"
 
 
 CPE_PATCH_TYPE patchImageMultiProtocol[] = {
-   0x210044c5,
-   0x21004091,
-   0x210040ad,
-   0x21004117,
-   0x210040d9,
-   0x21004539,
-   0x21004575,
-   0x2100413d,
-   0x21004149,
-   0x21004155,
-   0x21004171,
-   0x2100461f,
-   0x210041bd,
-   0x210041d5,
+   0x210043ed,
+   0x21004089,
+   0x210040a5,
+   0x2100410f,
+   0x210040d1,
+   0x21004461,
+   0x2100449d,
+   0x21004135,
+   0x21004141,
+   0x2100414d,
+   0x21004529,
+   0x21004181,
+   0x21004199,
+   0x210041b1,
    0x210041ed,
-   0x21004229,
-   0x21004693,
    0xd00507db,
    0xf803f000,
    0x70084902,
@@ -127,37 +125,24 @@ CPE_PATCH_TYPE patchImageMultiProtocol[] = {
    0x00031641,
    0x00031b23,
    0x4700b570,
-   0xfa42f000,
+   0xf9daf000,
    0x47004800,
    0x00007f57,
-   0xfa42f000,
+   0xf9daf000,
    0x47004800,
    0x0000881b,
-   0x0a889905,
-   0xd1052880,
-   0x78884913,
-   0x0f800780,
-   0xfa4cf000,
-   0x47004800,
-   0x00006ed9,
-   0x4810b40f,
-   0x290088c1,
-   0x4610d002,
-   0xfa40f000,
-   0x0a9b9b07,
+   0x0a9b9b03,
    0x2b834d08,
-   0x4c08d108,
+   0x4c08d10a,
    0x069b8923,
-   0xf000d504,
-   0x2800f805,
-   0x3542d000,
-   0x4728bc0f,
-   0x4805b570,
-   0x00004700,
+   0xb407d506,
+   0xf805f000,
+   0xd0002800,
+   0xbc073542,
+   0xb5704728,
+   0x47004802,
    0x00020b1f,
    0x21000160,
-   0x00020b1f,
-   0x21000380,
    0x000209eb,
    0x781a4b09,
    0x43a22408,
@@ -195,45 +180,6 @@ CPE_PATCH_TYPE patchImageMultiProtocol[] = {
    0x40045000,
    0x40046000,
    0x00004285,
-   0x4d1fb570,
-   0xb2c47828,
-   0x4780481e,
-   0x28037828,
-   0x2c03d134,
-   0x481cd032,
-   0x0d406880,
-   0x481a07c2,
-   0x31604601,
-   0x2a003080,
-   0x241fd003,
-   0x8845570c,
-   0x241ee002,
-   0x8805570c,
-   0xd01f2c00,
-   0x4a154813,
-   0x79006941,
-   0x10484341,
-   0x69494911,
-   0x49101840,
-   0x7f493940,
-   0x05404790,
-   0x42691540,
-   0xdb0d4288,
-   0xdc0b42a8,
-   0x69994b0c,
-   0x4602b288,
-   0x43620c09,
-   0x12520409,
-   0xb2801880,
-   0x61984308,
-   0x0000bd70,
-   0x210002e4,
-   0x00004179,
-   0x21000028,
-   0x21000380,
-   0x21000300,
-   0x000081cb,
-   0x40044040,
    0x4c86b510,
    0x31404621,
    0x28017d08,
@@ -252,7 +198,7 @@ CPE_PATCH_TYPE patchImageMultiProtocol[] = {
    0x04090240,
    0x66604308,
    0x1c806fa0,
-   0xf9ecf000,
+   0xf968f000,
    0x4874e013,
    0x69803020,
    0x28006840,
@@ -377,11 +323,11 @@ CPE_PATCH_TYPE patchImageMultiProtocol[] = {
    0x00023d8f,
    0x00023075,
    0x00022a15,
-   0x210044b9,
-   0x21004445,
-   0x210043e7,
-   0x21004367,
-   0x210042e9,
+   0x210043e1,
+   0x2100436d,
+   0x2100430f,
+   0x2100428f,
+   0x21004211,
    0x490cb510,
    0x4a0c4788,
    0x5e512106,
@@ -405,7 +351,7 @@ CPE_PATCH_TYPE patchImageMultiProtocol[] = {
    0x6ba26022,
    0x00520852,
    0x602163a2,
-   0xfdd0f7ff,
+   0xfe38f7ff,
    0x07006ba0,
    0x2001d408,
    0x60606020,
@@ -413,7 +359,7 @@ CPE_PATCH_TYPE patchImageMultiProtocol[] = {
    0xdbfc280c,
    0x62202014,
    0xf7ffbd10,
-   0xbd10fdc1,
+   0xbd10fe29,
    0x21000380,
    0x00005b3f,
    0x40046000,
@@ -432,73 +378,7 @@ CPE_PATCH_TYPE patchImageMultiProtocol[] = {
    0x477081d1,
    0x210002e0,
    0x21000088,
-   0x79c94908,
-   0x07d208ca,
-   0x40c1d008,
-   0x07c94806,
-   0x4906d001,
-   0x4906e000,
-   0x60c11c49,
-   0x20004770,
-   0x00004770,
-   0x210000e8,
-   0x21000028,
-   0x00000188,
-   0x00000150,
-   0x4b272201,
-   0x48252102,
-   0xb5104718,
-   0x47804825,
-   0x6a404825,
-   0xd10d2800,
-   0x200a4924,
-   0x28005608,
-   0x1c40da09,
-   0x4608d007,
-   0x6a403820,
-   0x42884920,
-   0x4780d100,
-   0xf7ffbd10,
-   0xbd10ffe3,
-   0x4b1e2100,
-   0x46084a1c,
-   0x20014718,
-   0x0240491c,
-   0x481c6008,
-   0x780122fb,
-   0x70014011,
-   0x38ec4812,
-   0xb5104700,
-   0x47884918,
-   0x39204911,
-   0xd0072801,
-   0xd5040402,
-   0x85082000,
-   0x62484814,
-   0xbd102001,
-   0x4b096a4a,
-   0x429a3bec,
-   0x4a11d101,
-   0x4907e005,
-   0x4b106a4a,
-   0xd1f2429a,
-   0x624a4a0f,
-   0x0000bd10,
-   0x00000806,
-   0x0000069f,
-   0x000292a1,
-   0x21000108,
-   0x21000154,
-   0x00029263,
-   0x2100463f,
-   0x0002b4b5,
-   0xe000e180,
-   0x21000380,
-   0x000296f7,
-   0x21004635,
-   0x2100467b,
-   0x00029569,
-   0x21004671,
+   0x47702000,
    0x07810882,
    0x0ec90092,
    0x78c0ca0c,
@@ -508,7 +388,7 @@ CPE_PATCH_TYPE patchImageMultiProtocol[] = {
    0x06000a09,
    0x47704308,
 };
-#define _NWORD_PATCHIMAGE_MULTI_PROTOCOL 440
+#define _NWORD_PATCHIMAGE_MULTI_PROTOCOL 320
 
 CPE_PATCH_TYPE patchCpeHd[] = {
    0x00000000,
@@ -517,7 +397,6 @@ CPE_PATCH_TYPE patchCpeHd[] = {
 
 #define _NWORD_PATCHSYS_MULTI_PROTOCOL 0
 
-#define _IRQ_PATCH_0 0x2100424d
 
 
 #ifndef _MULTI_PROTOCOL_SYSRAM_START
@@ -566,7 +445,6 @@ PATCH_FUN_SPEC void enterMultiProtocolSysPatch(void)
 PATCH_FUN_SPEC void configureMultiProtocolPatch(void)
 {
    uint8_t *pPatchTab = (uint8_t *) (_MULTI_PROTOCOL_CPERAM_START + _MULTI_PROTOCOL_PATCH_TAB_OFFSET);
-   uint32_t *pIrqPatch = (uint32_t *) (_MULTI_PROTOCOL_CPERAM_START + _MULTI_PROTOCOL_IRQPATCH_OFFSET);
 
 
    pPatchTab[1] = 0;
@@ -578,16 +456,12 @@ PATCH_FUN_SPEC void configureMultiProtocolPatch(void)
    pPatchTab[79] = 6;
    pPatchTab[140] = 7;
    pPatchTab[150] = 8;
-   pPatchTab[107] = 9;
-   pPatchTab[13] = 10;
-   pPatchTab[31] = 11;
-   pPatchTab[152] = 12;
-   pPatchTab[151] = 13;
-   pPatchTab[40] = 14;
-   pPatchTab[73] = 15;
-   pPatchTab[164] = 16;
-
-   pIrqPatch[1] = _IRQ_PATCH_0;
+   pPatchTab[13] = 9;
+   pPatchTab[31] = 10;
+   pPatchTab[152] = 11;
+   pPatchTab[151] = 12;
+   pPatchTab[40] = 13;
+   pPatchTab[73] = 14;
 }
 
 PATCH_FUN_SPEC void applyMultiProtocolPatch(void)
@@ -625,7 +499,6 @@ void rf_patch_cpe_multi_protocol(void)
    applyMultiProtocolPatch();
 }
 
-#undef _IRQ_PATCH_0
 
 //*****************************************************************************
 //

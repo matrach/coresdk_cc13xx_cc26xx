@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       setup_rom.h
-*  Revised:        2020-02-14 11:30:20 +0100 (Fri, 14 Feb 2020)
-*  Revision:       56760
+*  Revised:        2018-10-24 11:23:04 +0200 (Wed, 24 Oct 2018)
+*  Revision:       52993
 *
 *  Description:    Prototypes and defines for the setup API.
 *
-*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without

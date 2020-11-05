@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -121,6 +121,7 @@
  *    uartParams.writeDataMode = UART_DATA_BINARY;
  *    uartParams.readDataMode = UART_DATA_BINARY;
  *    uartParams.readReturnMode = UART_RETURN_FULL;
+ *    uartParams.readEcho = UART_ECHO_OFF;
  *    uartParams.baudRate = 115200;
  *
  *    // Open an instance of the UART drivers
@@ -703,7 +704,7 @@ extern void UART_close(UART_Handle handle);
  *          #UART_Handle.
  *
  *  Commands for %UART_control() can originate from UART.h or from implementation
- *  specific UART*.h (_UARTCC26XX.h_, _UARTMSP432E4.h_, etc.. ) files.
+ *  specific UART*.h (_UARTCC26XX.h_, _UARTMSP432.h_, etc.. ) files.
  *  While commands from UART.h are API portable across driver implementations,
  *  not all implementations may support all these commands.
  *  Conversely, commands from driver implementation specific UART*.h files add
@@ -818,6 +819,9 @@ extern void UART_Params_init(UART_Params *params);
  *  UART peripheral, either UART_write() or UART_writePolling() can be used,
  *  but not both.
  *
+ *  @warning Do not call %UART_write() from its own callback function when in
+ *  #UART_MODE_CALLBACK.
+ *
  *  @sa UART_writePolling()
  *
  *  @param  handle      A #UART_Handle returned by UART_open()
@@ -892,6 +896,9 @@ extern void UART_writeCancel(UART_Handle handle);
  *  %UART_read() is mutually exclusive to UART_readPolling(). For an opened
  *  UART peripheral, either %UART_read() or UART_readPolling() can be used,
  *  but not both.
+ *
+ *  @warning Do not call %UART_read() from its own callback function when in
+ *  #UART_MODE_CALLBACK.
  *
  *  @sa UART_readPolling()
  *

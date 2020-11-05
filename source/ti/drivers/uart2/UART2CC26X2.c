@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020, Texas Instruments Incorporated
+ * Copyright (c) 2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <string.h>
 
 #include <ti/drivers/dpl/ClockP.h>
 #include <ti/drivers/dpl/HwiP.h>
@@ -45,12 +44,9 @@
 #include <ti/drivers/Power.h>
 #include <ti/drivers/power/PowerCC26X2.h>
 #include <ti/drivers/dma/UDMACC26XX.h>
+#include <ti/drivers/uart2/UART2CC26X2.h>
 #include <ti/drivers/pin/PINCC26XX.h>
 
-#include <ti/drivers/uart2/UART2CC26X2.h>
-#include <ti/drivers/uart2/UART2Support.h>
-
-/* driverlib header files */
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(inc/hw_memmap.h)
 #include DeviceFamily_constructPath(inc/hw_ints.h)
@@ -66,8 +62,11 @@
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
+/* Size of the TX and RX FIFOs is 32 items */
+#define FIFO_SIZE 32
+
 /* Mazimum number of bytes that DMA can transfer */
-#define MAX_SIZE (UDMA_XFER_SIZE_MAX)
+#define MAX_SIZE 1024
 
 /* Options for DMA write and read */
 #define TX_CONTROL_OPTS  (UDMA_SIZE_8 | UDMA_SRC_INC_8 | UDMA_DST_INC_NONE | \
@@ -75,27 +74,108 @@
 #define RX_CONTROL_OPTS  (UDMA_SIZE_8 | UDMA_SRC_INC_NONE | UDMA_DST_INC_8 | \
             UDMA_ARB_4 | UDMA_MODE_BASIC)
 
-/* Allocate space for DMA control. */
+/*
+ *  Allocate space for DMA control.  Note: defines for UDMA_CHAN_UART1_RX
+ *  (5) and UDMA_CHAN_UART1_TX (6) are missing from driverlib header.
+ */
 ALLOCATE_CONTROL_TABLE_ENTRY(dmaUart0RxControlTableEntry, UDMA_CHAN_UART0_RX);
 ALLOCATE_CONTROL_TABLE_ENTRY(dmaUart0TxControlTableEntry, UDMA_CHAN_UART0_TX);
-ALLOCATE_CONTROL_TABLE_ENTRY(dmaUart1RxControlTableEntry, UDMA_CHAN_UART1_RX);
-ALLOCATE_CONTROL_TABLE_ENTRY(dmaUart1TxControlTableEntry, UDMA_CHAN_UART1_TX);
+ALLOCATE_CONTROL_TABLE_ENTRY(dmaUart1RxControlTableEntry, 5);
+ALLOCATE_CONTROL_TABLE_ENTRY(dmaUart1TxControlTableEntry, 6);
 
 /* Static functions */
-static void UART2CC26X2_eventCallback(UART2_Handle handle, uint32_t event,
-        uint32_t data, void *userArg);
-static uint_fast16_t UART2CC26X2_getPowerMgrId(uint32_t baseAddr);
+static void UART2CC26X2_configDmaRx(UART2_Handle handle);
+static void UART2CC26X2_configDmaTx(UART2_Handle handle);
 static void UART2CC26X2_hwiIntFxn(uintptr_t arg);
-static void UART2CC26X2_initHw(UART2_Handle handle);
-static bool UART2CC26X2_initIO(UART2_Handle handle);
-static int  UART2CC26X2_postNotifyFxn(unsigned int eventType, uintptr_t eventArg,
-        uintptr_t clientArg);
-static void UART2CC26X2_readCallback(UART2_Handle handle);
-static void UART2CC26X2_readTimeout(uintptr_t arg);
-static void UART2CC26X2_writeTimeout(uintptr_t arg);
+static void cancelDmaRx(UART2_Handle handle);
+static void enableRX(UART2_Handle handle);
+static uint_fast16_t getPowerMgrId(uint32_t baseAddr);
+static void initHw(UART2_Handle handle);
+static bool initIO(UART2_Handle handle);
+static int  postNotifyFxn(unsigned int eventType, uintptr_t eventArg,
+    uintptr_t clientArg);
+static int32_t readData(UART2_Handle handle, int32_t size);
+static void readSemCallback(UART2_Handle handle, void *buffer, size_t count,
+        void *userArg, int_fast16_t status);
+static void readDone(UART2_Handle handle);
+static void writeSemCallback(UART2_Handle handle, void *buffer, size_t count,
+        void *userArg, int_fast16_t status);
+
+extern const UART2_Config UART2_config[];
+extern const uint_least8_t UART2_count;
+
+/*
+ *  ======== dmaChannelNum ========
+ *  Get the channel number from the channel bit mask
+ */
+static inline uint32_t dmaChannelNum(uint32_t x) {
+#if defined(__TI_COMPILER_VERSION__)
+    return ((uint32_t) __clz(__rbit(x)));
+#elif defined(__GNUC__)
+    return ((uint32_t) __builtin_ctz(x));
+#elif defined(__IAR_SYSTEMS_ICC__)
+    return ((uint32_t) __CLZ(__RBIT(x)));
+#else
+    #error "Unsupported compiler"
+#endif
+}
+
+/*
+ *  ======== getRxStatus ========
+ *  Get the left-most bit set in the RX error status (OE, BE, PE, FE)
+ *  read from the RSR register:
+ *      bit#   3   2   1   0
+ *             OE  BE  PE  FE
+ *  e.g., if OE and FE are both set, OE wins.  This will make it easier
+ *  to convert an RX error status to a UART2 error code.
+ */
+static inline uint32_t getRxStatus(uint32_t x)
+{
+#if defined(__TI_COMPILER_VERSION__)
+    return ((uint32_t) (x & (0x80000000 >> __clz(x))));
+#elif defined(__GNUC__)
+    return ((uint32_t) (x & (0x80000000 >> __builtin_clz(x))));
+#elif defined(__IAR_SYSTEMS_ICC__)
+    return ((uint32_t) (x & (0x80000000 >>  __CLZ(x))));
+#else
+    #error "Unsupported compiler"
+#endif
+}
+
+/*
+ *  ======== rxStatus2ErrorCode ========
+ *  Convert RX status (OE, BE, PE, FE) to a UART2 error code.
+ */
+static inline int_fast16_t rxStatus2ErrorCode(uint32_t x)
+{
+    uint32_t status;
+
+    status = getRxStatus(x);
+    return (-((int_fast16_t)status));
+}
+
+
+/*
+ * Function for checking whether flow control is enabled.
+ */
+static inline bool isFlowControlEnabled(UART2CC26X2_HWAttrs const  *hwAttrs) {
+    return ((hwAttrs->flowControl == UART2CC26X2_FLOWCTRL_HARDWARE) &&
+            (hwAttrs->ctsPin != PIN_UNASSIGNED) && (hwAttrs->rtsPin != PIN_UNASSIGNED));
+}
+
+/* UART function table for UART2CC26X2 implementation */
+const UART2_FxnTable UART2CC26X2_fxnTable = {
+    UART2CC26X2_close,
+    UART2CC26X2_open,
+    UART2CC26X2_read,
+    UART2CC26X2_readCancel,
+    UART2CC26X2_write,
+    UART2CC26X2_writeCancel,
+    UART2CC26X2_flushRx,
+};
 
 /* Map UART2 data length to driverlib data length */
-static const uint8_t dataLength[] = {
+static const uint32_t dataLength[] = {
     UART_CONFIG_WLEN_5,     /* UART2_DataLen_5 */
     UART_CONFIG_WLEN_6,     /* UART2_DataLen_6 */
     UART_CONFIG_WLEN_7,     /* UART2_DataLen_7 */
@@ -103,13 +183,13 @@ static const uint8_t dataLength[] = {
 };
 
 /* Map UART2 stop bits to driverlib stop bits */
-static const uint8_t stopBits[] = {
+static const uint32_t stopBits[] = {
     UART_CONFIG_STOP_ONE,   /* UART2_StopBits_1 */
     UART_CONFIG_STOP_TWO    /* UART2_StopBits_2 */
 };
 
 /* Map UART2 parity type to driverlib parity type */
-static const uint8_t parityType[] = {
+static const uint32_t parityType[] = {
     UART_CONFIG_PAR_NONE,   /* UART2_Parity_NONE */
     UART_CONFIG_PAR_EVEN,   /* UART2_Parity_EVEN */
     UART_CONFIG_PAR_ODD,    /* UART2_Parity_ODD */
@@ -141,155 +221,27 @@ static const uint8_t rxFifoThreshold[5] = {
     UART_FIFO_RX7_8  /* UART2CC26X2_FIFO_THRESHOLD_7_8     */
 };
 
+/* Number of bytes in the RX FIFO at the corresponding FIFO threshold level */
+static const uint8_t rxFifoBytes[6] = {
+     4,   /* UART2CC26X2_FIFO_THRESHOLD_1_8     */
+     8,   /* UART2CC26X2_FIFO_THRESHOLD_2_8     */
+    16,   /* UART2CC26X2_FIFO_THRESHOLD_4_8     */
+    24,   /* UART2CC26X2_FIFO_THRESHOLD_6_8     */
+    28    /* UART2CC26X2_FIFO_THRESHOLD_7_8     */
+};
+
 /*
- *  ======== uartDmaEnable ========
- *  Atomic version of DriverLib UARTDMAEnable()
+ *  ======== UART2CC26X2_close ========
  */
-static inline void uartDmaEnable(uint32_t ui32Base, uint32_t ui32DMAFlags)
+void UART2CC26X2_close(UART2_Handle handle)
 {
-    uintptr_t key;
-
-    key = HwiP_disable();
-    /* Set the requested bits in the UART DMA control register. */
-    HWREG(ui32Base + UART_O_DMACTL) |= ui32DMAFlags;
-
-    HwiP_restore(key);
-}
-
-/*
- *  ======== uartDmaDisable ========
- *  Atomic version of DriverLib UARTDMADisable()
- */
-static inline void uartDmaDisable(uint32_t ui32Base, uint32_t ui32DMAFlags)
-{
-    uintptr_t key;
-
-    key = HwiP_disable();
-    /* Clear the requested bits in the UART DMA control register. */
-    HWREG(ui32Base + UART_O_DMACTL) &= ~ui32DMAFlags;
-
-    HwiP_restore(key);
-}
-
-/*
- *  ======== uartEnableCTS ========
- *  CTS only version of DriverLib UARTHwFlowControlEnable()
- */
-static inline void uartEnableCTS(uint32_t ui32Base)
-{
-    HWREG(ui32Base + UART_O_CTL) |= (UART_CTL_CTSEN);
-}
-
-/*
- *  ======== uartEnableRTS ========
- *  RTS only version of DriverLib UARTHwFlowControlEnable()
- */
-static inline void uartEnableRTS(uint32_t ui32Base)
-{
-    HWREG(ui32Base + UART_O_CTL) |= (UART_CTL_RTSEN);
-}
-
-/*
- *  ======== uartDisableCTS ========
- *  CTS only version of DriverLib UARTHwFlowControlDisable()
- */
-static inline void uartDisableCTS(uint32_t ui32Base)
-{
-    HWREG(ui32Base + UART_O_CTL) &= ~(UART_CTL_CTSEN);
-}
-
-/*
- *  ======== uartDisableRTS ========
- *  RTS only version of DriverLib UARTHwFlowControlDisable()
- */
-static inline void uartDisableRTS(uint32_t ui32Base)
-{
-    HWREG(ui32Base + UART_O_CTL) &= ~(UART_CTL_RTSEN);
-}
-
-
-/*
- *  ======== UART2CC26X2_getRxData ========
- *  Must be called with HWI disabled.
- */
-static inline size_t UART2CC26X2_getRxData(UART2_Handle handle, size_t size)
-{
-    UART2CC26X2_Object        *object   = handle->object;
-    UART2CC26X2_HWAttrs const *hwAttrs  = handle->hwAttrs;
-    size_t                     consumed = 0;
-    uint8_t                    data;
-
-    while (!(HWREG(hwAttrs->baseAddr + UART_O_FR) & UART_FR_RXFE) && size) {
-        data = HWREG(hwAttrs->baseAddr + UART_O_DR);
-        RingBuf_put(&object->rxBuffer, data);
-        ++consumed;
-        --size;
-    }
-
-    return (consumed);
-}
-
-/*
- *  ======== dmaChannelNum ========
- *  Get the channel number from the channel bit mask
- */
-static inline uint32_t dmaChannelNum(uint32_t x) {
-#if defined(__TI_COMPILER_VERSION__)
-    return ((uint32_t) __clz(__rbit(x)));
-#elif defined(__GNUC__)
-    return ((uint32_t) __builtin_ctz(x));
-#elif defined(__IAR_SYSTEMS_ICC__)
-    return ((uint32_t) __CLZ(__RBIT(x)));
-#else
-    #error "Unsupported compiler"
-#endif
-}
-
-/*
- *  ======== UART2CC26X2_getRxStatus ========
- *  Get the left-most bit set in the RX error status (OE, BE, PE, FE)
- *  read from the RSR register:
- *      bit#   3   2   1   0
- *             OE  BE  PE  FE
- *  e.g., if OE and FE are both set, OE wins.  This will make it easier
- *  to convert an RX error status to a UART2 error code.
- */
-static inline uint32_t UART2CC26X2_getRxStatus(uint32_t bitMask)
-{
-#if defined(__TI_COMPILER_VERSION__)
-    return ((uint32_t) (bitMask & (0x80000000 >> __clz(bitMask))));
-#elif defined(__GNUC__)
-    return ((uint32_t) (bitMask & (0x80000000 >> __builtin_clz(bitMask))));
-#elif defined(__IAR_SYSTEMS_ICC__)
-    return ((uint32_t) (bitMask & (0x80000000 >>  __CLZ(bitMask))));
-#else
-    #error "Unsupported compiler"
-#endif
-}
-
-/*
- * Function for checking whether flow control is enabled.
- */
-static inline bool UART2CC26X2_isFlowControlEnabled(
-        UART2CC26X2_HWAttrs const *hwAttrs) {
-    return (hwAttrs->flowControl == UART2_FLOWCTRL_HARDWARE);
-}
-
-/*
- *  ======== UART2_close ========
- */
-void UART2_close(UART2_Handle handle)
-{
-    UART2CC26X2_Object        *object = handle->object;
-    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
+    UART2CC26X2_Object            *object = handle->object;
+    UART2CC26X2_HWAttrs const     *hwAttrs = handle->hwAttrs;
 
     /* Disable UART and interrupts. */
     UARTIntDisable(hwAttrs->baseAddr, UART_INT_TX | UART_INT_RX |
             UART_INT_RT | UART_INT_OE | UART_INT_BE | UART_INT_PE |
             UART_INT_FE | UART_INT_CTS);
-
-    /* Releases Power constraint if rx is enabled. */
-    UART2_rxDisable(handle);
 
     /*
      *  Disable the UART.  Do not call driverlib function
@@ -306,13 +258,11 @@ void UART2_close(UART2_Handle handle)
     PIN_close(object->hPin);
 
     HwiP_destruct(&(object->hwi));
-    SemaphoreP_destruct(&(object->writeSem));
-    SemaphoreP_destruct(&(object->readSem));
-    ClockP_destruct(&(object->readTimeoutClk));
-    ClockP_destruct(&(object->writeTimeoutClk));
-
-    if (object->udmaHandle) {
-        UDMACC26XX_close(object->udmaHandle);
+    if (object->state.writeMode == UART2_Mode_BLOCKING) {
+        SemaphoreP_destruct(&(object->writeSem));
+    }
+    if (object->state.readMode == UART2_Mode_BLOCKING) {
+        SemaphoreP_destruct(&(object->readSem));
     }
 
     /* Unregister power notification objects */
@@ -325,42 +275,209 @@ void UART2_close(UART2_Handle handle)
 }
 
 /*
- *  ======== UART2_flushRx ========
+ *  ======== UART2CC26X2_configDmaRx ========
  */
-void UART2_flushRx(UART2_Handle handle)
+static void UART2CC26X2_configDmaRx(UART2_Handle handle)
 {
     UART2CC26X2_Object        *object = handle->object;
     UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
-    uintptr_t                  key;
+    volatile                   tDMAControlTable *rxDmaEntry;
+    uint32_t                   rxSize;
 
-    key = HwiP_disable();
-    UART2Support_dmaStopRx(handle);
-    HwiP_restore(key);
+    rxDmaEntry = object->rxDmaEntry;
+    rxDmaEntry->ui32Control = RX_CONTROL_OPTS;
 
-    RingBuf_flush(&object->rxBuffer);
+    rxSize = MIN(object->readCount, MAX_SIZE);
+    object->rxSize = rxSize;
 
-    /* Read RX FIFO until empty */
-    while (((int32_t)UARTCharGetNonBlocking(hwAttrs->baseAddr)) != -1);
+    rxDmaEntry->pvDstEndAddr = (void *)(object->readBuf +
+            object->bytesRead + rxSize - 1);
 
-    /* Clear any read errors */
-    UARTRxErrorClear(hwAttrs->baseAddr);
+    /* Set the size in the control options */
+    rxDmaEntry->ui32Control |= UDMACC26XX_SET_TRANSFER_SIZE(rxSize);
 
-    key = HwiP_disable();
-    UART2Support_dmaStartRx(handle);
-    HwiP_restore(key);
+    UDMACC26XX_channelEnable(object->udmaHandle, hwAttrs->rxChannelMask);
+
+    UARTDMAEnable(hwAttrs->baseAddr, UART_DMA_RX);
 }
 
 /*
- *  ======== UART2_open ========
+ *  ======== UART2CC26X2_configDmaTx ========
  */
-UART2_Handle UART2_open(uint_least8_t index, UART2_Params *params)
+static void UART2CC26X2_configDmaTx(UART2_Handle handle)
+{
+    UART2CC26X2_Object        *object = handle->object;
+    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
+    volatile                   tDMAControlTable *txDmaEntry;
+    uint32_t                   txSize;
+
+    txDmaEntry = object->txDmaEntry;
+    txDmaEntry->ui32Control = TX_CONTROL_OPTS;
+
+    // TransferSize must be <= 1024
+    txSize = MIN(object->writeCount, MAX_SIZE);
+    object->txSize = txSize;
+
+    txDmaEntry->pvSrcEndAddr = (void *)(object->writeBuf +
+            object->bytesWritten + txSize - 1);
+
+    /* Set the size in the control options */
+    txDmaEntry->ui32Control |= UDMACC26XX_SET_TRANSFER_SIZE(txSize);
+
+    UDMACC26XX_channelEnable(object->udmaHandle, hwAttrs->txChannelMask);
+    UARTDMAEnable(hwAttrs->baseAddr, UART_DMA_TX);
+}
+
+/*
+ *  ======== UART2CC26X2_flushRx ========
+ */
+void UART2CC26X2_flushRx(UART2_Handle handle)
+{
+    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
+
+    /* Read RX FIFO until empty */
+    while (((int32_t)UARTCharGetNonBlocking(hwAttrs->baseAddr)) != -1);
+}
+
+/*
+ *  ======== UART2CC26X2_hwiIntFxn ========
+ *  Hwi function that processes UART interrupts.
+ */
+static void UART2CC26X2_hwiIntFxn(uintptr_t arg)
+{
+    uint32_t                     status;
+    uint32_t                     errStatus = 0;
+    uint32_t                     bytesToRead;
+    uint32_t                     fifoThresholdBytes;
+    UART2_Handle                 handle = (UART2_Handle)arg;
+    UART2CC26X2_HWAttrs const   *hwAttrs = handle->hwAttrs;
+    UART2CC26X2_Object          *object = handle->object;
+    UDMACC26XX_HWAttrs  const   *hwAttrsUdma;
+
+    hwAttrsUdma = object->udmaHandle->hwAttrs;  // For error case
+
+    /* Clear interrupts */
+    status = UARTIntStatus(hwAttrs->baseAddr, true);
+    UARTIntClear(hwAttrs->baseAddr, status);
+
+    if (status & (UART_INT_OE | UART_INT_BE | UART_INT_PE | UART_INT_FE)) {
+        // TODO: Handle the error
+        if (object->state.readReturnMode != UART2_ReadReturnMode_PARTIAL) {
+            UARTDMADisable(hwAttrs->baseAddr, UART_DMA_RX);
+            UDMACC26XX_clearInterrupt(object->udmaHandle,
+                    hwAttrs->rxChannelMask);
+
+            errStatus = UARTRxErrorGet(hwAttrs->baseAddr);
+            object->rxStatus = rxStatus2ErrorCode(errStatus);
+
+            /* Number of bytes not yet transferred by the DMA */
+            bytesToRead = uDMAChannelSizeGet(hwAttrsUdma->baseAddr,
+                    dmaChannelNum(hwAttrs->rxChannelMask));
+            // TODO: Handle case where transfer size > 1024 bytes
+            object->bytesRead += (object->readSize - bytesToRead);
+
+            readDone(handle);
+        }
+    }
+    else if (status & UART_INT_RT) {
+        if ((object->state.readReturnMode == UART2_ReadReturnMode_PARTIAL) &&
+                object->readCount > 0) {
+            readData((UART2_Handle)arg, object->readCount);
+
+            readDone(handle);
+        }
+    }
+    else if ((status & UART_INT_RX) &&
+             (object->state.readReturnMode == UART2_ReadReturnMode_PARTIAL)) {
+        /* Must leave at least one byte in the fifo to get read timeout */
+        fifoThresholdBytes = rxFifoBytes[hwAttrs->rxIntFifoThr];
+        bytesToRead = MIN(fifoThresholdBytes - 1, object->readCount);
+        readData((UART2_Handle)arg, bytesToRead);
+
+        if (object->readCount == 0) {
+            readDone(handle);
+        }
+    }
+
+    /* UDMACC26XX_channelDone() checks for rxChannel bit set in REQDONE */
+    if (UDMACC26XX_channelDone(object->udmaHandle, hwAttrs->rxChannelMask)) {
+        UARTDMADisable(hwAttrs->baseAddr, UART_DMA_RX);
+        UDMACC26XX_clearInterrupt(object->udmaHandle, hwAttrs->rxChannelMask);
+
+        if (object->readCount != 0) {
+            object->bytesRead += object->rxSize;
+            object->readCount -= object->rxSize;
+
+            if (--object->nReadTransfers == 0) {
+                readDone(handle);
+            }
+            else {
+                // Start a new DMA transferred
+                UART2CC26X2_configDmaRx(handle);
+            }
+        }
+    }
+
+    if (UDMACC26XX_channelDone(object->udmaHandle, hwAttrs->txChannelMask)) {
+        // Write finished
+        UARTDMADisable(hwAttrs->baseAddr, UART_DMA_TX);
+        UDMACC26XX_clearInterrupt(object->udmaHandle, hwAttrs->txChannelMask);
+
+        object->bytesWritten += object->txSize;
+        object->writeCount -= object->txSize;
+
+        if ((object->writeSize) && (--object->nWriteTransfers > 0)) {
+            UART2CC26X2_configDmaTx(handle);
+        }
+        else {
+            UARTIntEnable(hwAttrs->baseAddr, UART_INT_EOT);
+            if (!UARTBusy(hwAttrs->baseAddr)) {
+                if ((object->writeCount == 0) && (object->writeSize > 0)) {
+                    //object->bytesWritten = object->writeSize;
+
+                    /* Disable TX */
+                    HWREG(hwAttrs->baseAddr + UART_O_CTL) &= ~(UART_CTL_TXE);
+
+                    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+                    object->state.txEnabled = false;
+                    object->writeCallback(handle, (void *)object->writeBuf,
+                            object->bytesWritten, object->userArg,
+                            object->txStatus);
+                    UARTIntDisable(hwAttrs->baseAddr, UART_INT_EOT);
+                    UARTIntClear(hwAttrs->baseAddr, UART_INT_EOT);
+                }
+            }
+        }
+    }
+    if (status & (UART_INT_EOT)) {
+        /* Check txEnabled in case writeCancel was called */
+        if ((object->writeCount == 0) && object->state.txEnabled) {
+            //object->bytesWritten = object->writeSize;
+            /* Disable TX */
+            HWREG(hwAttrs->baseAddr + UART_O_CTL) &= ~(UART_CTL_TXE);
+
+            Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+            object->state.txEnabled = false;
+            object->writeCallback(handle, (void *)object->writeBuf,
+                    object->bytesWritten, object->userArg, object->txStatus);
+        }
+        UARTIntDisable(hwAttrs->baseAddr, UART_INT_EOT);
+    }
+}
+
+/*
+ *  ======== UART2CC26X2_open ========
+ */
+UART2_Handle UART2CC26X2_open(uint_least8_t index, UART2_Params *params)
 {
     UART2_Handle               handle = NULL;
     uintptr_t                  key;
     UART2CC26X2_Object        *object;
     UART2CC26X2_HWAttrs const *hwAttrs;
-    HwiP_Params                hwiParams;
-    ClockP_Params              clkParams;
+    /* Use union to save on stack allocation */
+    union {
+        HwiP_Params     hwiParams;
+    } paramsUnion;
 
     if (index < UART2_count) {
         handle = (UART2_Handle)&(UART2_config[index]);
@@ -371,36 +488,32 @@ UART2_Handle UART2_open(uint_least8_t index, UART2_Params *params)
         return (NULL);
     }
 
-    /* Check for callback when in UART2_Mode_CALLBACK */
+    /* Check for callback when in UART_MODE_CALLBACK */
     if (((params->readMode == UART2_Mode_CALLBACK) &&
             (params->readCallback == NULL)) ||
             ((params->writeMode == UART2_Mode_CALLBACK) &&
-            (params->writeCallback == NULL))) {
+                    (params->writeCallback == NULL))) {
         return (NULL);
     }
 
     key = HwiP_disable();
 
-    if (object->state.opened) {
+    if (object->state.opened == true) {
         HwiP_restore(key);
+
         return (NULL);
     }
     object->state.opened = true;
 
     HwiP_restore(key);
 
-    object->state.rxEnabled      = false;
-    object->state.txEnabled      = false;
-    object->state.rxCancelled    = false;
-    object->state.txCancelled    = false;
-    object->state.overrunActive  = false;
     object->state.readMode       = params->readMode;
     object->state.writeMode      = params->writeMode;
     object->state.readReturnMode = params->readReturnMode;
+    object->readTimeout          = params->readTimeout;
+    object->writeTimeout         = params->writeTimeout;
     object->readCallback         = params->readCallback;
     object->writeCallback        = params->writeCallback;
-    object->eventCallback        = params->eventCallback;
-    object->eventMask            = params->eventMask;
     object->baudRate             = params->baudRate;
     object->stopBits             = params->stopBits;
     object->dataLength           = params->dataLength;
@@ -418,34 +531,20 @@ UART2_Handle UART2_open(uint_least8_t index, UART2_Params *params)
     object->nReadTransfers       = 0;
     object->rxStatus             = 0;
     object->txStatus             = 0;
-    object->rxSize               = 0;
-    object->txSize               = 0;
-    object->readInUse            = false;
-    object->writeInUse           = false;
-    object->udmaHandle           = NULL;
 
     /* Determine the Power resource Id from the UART base address */
-    object->powerMgrId = UART2CC26X2_getPowerMgrId(hwAttrs->baseAddr);
+    object->powerMgrId = getPowerMgrId(hwAttrs->baseAddr);
     if (object->powerMgrId >= PowerCC26X2_NUMRESOURCES) {
         return (NULL);
-    }
-
-    /* Set the event mask to 0 if the callback is NULL to simplify checks */
-    if (object->eventCallback == NULL) {
-        object->eventCallback = UART2CC26X2_eventCallback;
-        object->eventMask = 0;
     }
 
     /* Register power dependency - i.e. power up and enable clock for UART. */
     Power_setDependency(object->powerMgrId);
 
-    RingBuf_construct(&object->rxBuffer, hwAttrs->rxBufPtr, hwAttrs->rxBufSize);
-    RingBuf_construct(&object->txBuffer, hwAttrs->txBufPtr, hwAttrs->txBufSize);
-
     UARTDisable(hwAttrs->baseAddr);
 
     /* Configure IOs, make sure it was successful */
-    if (!UART2CC26X2_initIO(handle)) {
+    if (!initIO(handle)) {
         /* Another driver or application already using these pins. */
         /* Release power dependency */
         Power_releaseDependency(object->powerMgrId);
@@ -461,33 +560,30 @@ UART2_Handle UART2_open(uint_least8_t index, UART2_Params *params)
      *  Initialize the UART hardware module.  Enable the UART and FIFO,
      *  but do not enable RX or TX yet.
      */
-    UART2CC26X2_initHw(handle);
+    initHw(handle);
 
     /* Register notification function */
     Power_registerNotify(&object->postNotify, PowerCC26XX_AWAKE_STANDBY,
-            UART2CC26X2_postNotifyFxn, (uintptr_t)handle);
+            postNotifyFxn, (uintptr_t)handle);
 
     /* Create Hwi object for this UART peripheral. */
-    HwiP_Params_init(&hwiParams);
-    hwiParams.arg = (uintptr_t)handle;
-    hwiParams.priority = hwAttrs->intPriority;
+    HwiP_Params_init(&(paramsUnion.hwiParams));
+    paramsUnion.hwiParams.arg = (uintptr_t)handle;
+    paramsUnion.hwiParams.priority = hwAttrs->intPriority;
     HwiP_construct(&(object->hwi), hwAttrs->intNum, UART2CC26X2_hwiIntFxn,
-            &hwiParams);
+                  &(paramsUnion.hwiParams));
 
-    SemaphoreP_constructBinary(&(object->readSem), 0);
-    SemaphoreP_constructBinary(&(object->writeSem), 0);
+    /* If read mode is blocking create a semaphore and set callback. */
+    if (object->state.readMode == UART2_Mode_BLOCKING) {
+        SemaphoreP_constructBinary(&(object->readSem), 0);
+        object->readCallback = &readSemCallback;
+    }
 
-    /* Timeout clock for reads and writes */
-    ClockP_Params_init(&(clkParams));
-    clkParams.arg = (uintptr_t)handle;
-
-    ClockP_construct(&(object->readTimeoutClk),
-            (ClockP_Fxn)&UART2CC26X2_readTimeout,  0 /* timeout */,
-            &(clkParams));
-
-    ClockP_construct(&(object->writeTimeoutClk),
-            (ClockP_Fxn)&UART2CC26X2_writeTimeout,  0 /* timeout */,
-            &(clkParams));
+    /* If write mode is blocking create a semaphore and set callback. */
+    if (object->state.writeMode == UART2_Mode_BLOCKING) {
+        SemaphoreP_constructBinary(&(object->writeSem), 0);
+        object->writeCallback = &writeSemCallback;
+    }
 
     /* Set rx src and tx dst addresses in open, since these won't change */
     if (hwAttrs->baseAddr == UART0_BASE) {
@@ -506,512 +602,385 @@ UART2_Handle UART2_open(uint_least8_t index, UART2_Params *params)
 }
 
 /*
- *  ======== UART2Support_disableRx ========
+ *  ======== UART2CC26X2_read ========
  */
-void UART2Support_disableRx(UART2_HWAttrs const *hwAttrs)
+int_fast16_t UART2CC26X2_read(UART2_Handle handle, void *buffer, size_t size,
+        size_t *bytesRead)
 {
-    UARTIntDisable(hwAttrs->baseAddr, UART_INT_OE | UART_INT_BE | UART_INT_PE |
-            UART_INT_FE | UART_INT_RT | UART_INT_RX);
-    UARTIntClear(hwAttrs->baseAddr, UART_INT_OE | UART_INT_BE | UART_INT_PE |
-            UART_INT_FE | UART_INT_RT | UART_INT_RX);
-    HWREG(hwAttrs->baseAddr + UART_O_CTL) &= ~UART_CTL_RXE;
-}
-
-/*
- *  ======== UART2Support_disableTx ========
- */
-void UART2Support_disableTx(UART2_HWAttrs const *hwAttrs)
-{
-    HWREG(hwAttrs->baseAddr + UART_O_CTL) &= ~(UART_CTL_TXE);
-}
-
-/*
- *  ======== UART2Support_dmaRefreshRx ========
- *  For mutual exclusion, must be called with HWI disabled.  Update the
- *  ring buffer count with the number of bytes dma'd so far.
- */
-void UART2Support_dmaRefreshRx(UART2_Handle handle)
-{
-    UART2CC26X2_Object        *object = handle->object;
+    uintptr_t            key;
+    UART2CC26X2_Object  *object = handle->object;
     UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
-    UDMACC26XX_HWAttrs  const *hwAttrsUdma = object->udmaHandle->hwAttrs;
-    uint32_t                   rxCount;
-    uint32_t                   bytesRemaining;
+    int                  status = UART2_STATUS_SUCCESS;
+    unsigned char       *buf = (unsigned char *)buffer;
+    int32_t              data;
+    size_t               numBytesRead;
+    size_t              *pNumBytesRead = bytesRead;
 
-    if (object->rxSize) {
-        /* DMA transaction in progress */
-        bytesRemaining = uDMAChannelSizeGet(hwAttrsUdma->baseAddr,
-                dmaChannelNum(hwAttrs->rxChannelMask));
-        if (bytesRemaining == 0) {
-            /* DMA transaction just finished, before the HWI could handle it */
-            UART2Support_dmaStopRx(handle);
-            UART2Support_dmaStartRx(handle);
+    pNumBytesRead = (bytesRead == NULL) ? &numBytesRead : bytesRead;
+    *pNumBytesRead = 0;
+
+    key = HwiP_disable();
+
+    if (!object->state.opened) {
+        HwiP_restore(key);
+        return (UART2_STATUS_ENOTOPEN);
+    }
+    if (object->readSize) {
+        HwiP_restore(key);
+        return (UART2_STATUS_EINUSE);
+    }
+
+    /* Save the data to be read and restore interrupts. */
+    object->readBuf = (unsigned char *)buffer;
+    object->readSize = size;
+    object->readCount = size; /* Number remaining to be read */
+    object->bytesRead = 0;    /* Number of bytes read */
+    object->rxStatus = 0;     /* Clear receive errors */
+
+    HwiP_restore(key);
+
+    /* Enable RX and set the Power constraint */
+    enableRX(handle);
+    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
+
+    if (object->state.readMode == UART2_Mode_POLLING) {
+        while (size) {
+            data = UARTCharGetNonBlocking(hwAttrs->baseAddr);
+            if (data == -1) {
+                break;
+            }
+            /* Convert error code in upper bytes of data to a UART2 status */
+            status = rxStatus2ErrorCode((data >> 8) & 0xF);
+            if (status < 0) {
+                // TODO: What data to return in case of errors
+                break;
+            }
+            *buf++ = data & 0xFF;
+            size--;
+        }
+        *pNumBytesRead = object->readSize - size;
+
+        /* Release the power constraint */
+        Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+
+        /* Set readSize to 0 to allow another read */
+        object->readCount = 0;
+        object->readSize = 0;
+
+        return (status);
+    }
+
+    /*
+     *  Don't use DMA for return partial mode, since we have to leave
+     *  one byte in the FIFO to get the read timeout.
+     */
+    if (object->state.readReturnMode == UART2_ReadReturnMode_PARTIAL) {
+        /* Enable RX and error interrupts */
+        UARTIntEnable(hwAttrs->baseAddr, UART_INT_RX | UART_INT_RT |
+                UART_INT_OE | UART_INT_BE | UART_INT_PE | UART_INT_FE);
+    }
+    else {
+        /* Can transfer maximum of 1024 bytes in one DMA transfer */
+        object->nReadTransfers = (object->readSize + MAX_SIZE - 1) / MAX_SIZE;
+        UART2CC26X2_configDmaRx(handle);
+    }
+
+    if (object->state.readMode == UART2_Mode_BLOCKING) {
+        if (SemaphoreP_OK != SemaphoreP_pend(&(object->readSem),
+                    object->readTimeout)) {
+            key = HwiP_disable();
+            if (object->readSize == 0) {
+                /* Interrupt occurred just after SemaphoreP_pend() timeout */
+                status = object->rxStatus;
+                SemaphoreP_pend(&(object->readSem), SemaphoreP_NO_WAIT);
+                HwiP_restore(key);
+            }
+            else {
+                status = UART2_STATUS_ETIMEOUT;
+
+                /* Set readCount to 0 to prevent ISR from doing more work */
+                object->readCount = 0;
+                HwiP_restore(key);
+
+                cancelDmaRx(handle);
+
+                /* Release the power constraint */
+                Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+            }
         }
         else {
-            rxCount = object->rxSize - bytesRemaining;
-            RingBuf_putAdvance(&object->rxBuffer, rxCount);
-
-            object->rxSize = bytesRemaining;
+            status = object->rxStatus;
         }
+
+        *pNumBytesRead = object->bytesRead;
+        object->readSize = 0;  // Allow the next read
     }
-}
-
-/*
- *  ======== UART2Support_dmaStartRx ========
- *  For mutual exclusion, must be called with HWI disabled.
- */
-void UART2Support_dmaStartRx(UART2_Handle handle)
-{
-    UART2CC26X2_Object        *object = handle->object;
-    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
-    UDMACC26XX_HWAttrs  const *hwAttrsUdma = object->udmaHandle->hwAttrs;
-    volatile tDMAControlTable *rxDmaEntry = object->rxDmaEntry;
-    unsigned char             *dstAddr;
-
-    if (object->state.rxEnabled == false) {
-        /* DMA RX not enabled */
-        return;
+    else {
+        // ISR will do the work
     }
-    if (object->rxSize > 0) {
-        /* DMA RX already in progress */
-        return;
-    }
-
-    /*
-     *  Flush out the RX FIFO as much as we can, this helps us keep up at high
-     *  data rates.
-     */
-    if (UART2CC26X2_getRxData(handle, RingBuf_space(&object->rxBuffer)) > 0) {
-        /* There must be data available. */
-        SemaphoreP_post(&object->readSem);
-    }
-
-    /* get the remaining space in the buffer for the DMA transaction */
-    object->rxSize = RingBuf_putPointer(&object->rxBuffer, &dstAddr);
-
-    if (object->rxSize > 0) {
-        object->state.overrunActive = false;
-
-        if ((object->state.readMode == UART2_Mode_BLOCKING ||
-                object->state.readMode == UART2_Mode_CALLBACK) &&
-                object->rxSize > (hwAttrs->rxBufSize / 2)) {
-            /* In blocking read mode, there are only two ways that the read()
-             * can be unblocked:
-             *   1) receive timeout interrupt
-             *   2) DMA finished
-             *
-             * In blocking mode, we make sure the DMA transfer is no longer
-             * than half the RX buffer size in order to leave some space for
-             * the driver to keep filling while the application moves to
-             * unload the buffer through one or more read() calls.
-             */
-            object->rxSize = hwAttrs->rxBufSize / 2;
-        }
-        if (object->rxSize > UDMA_XFER_SIZE_MAX) {
-            object->rxSize = UDMA_XFER_SIZE_MAX;
-        }
-        rxDmaEntry->pvDstEndAddr = dstAddr + object->rxSize - 1;
-
-        rxDmaEntry->ui32Control = RX_CONTROL_OPTS;
-
-        /* Set the size in the control options */
-        rxDmaEntry->ui32Control |= UDMACC26XX_SET_TRANSFER_SIZE(object->rxSize);
-
-        /* enable burst mode */
-        HWREG(hwAttrsUdma->baseAddr + UDMA_O_SETBURST) =
-               1 << dmaChannelNum(hwAttrs->rxChannelMask);
-        UDMACC26XX_channelEnable(object->udmaHandle, hwAttrs->rxChannelMask);
-
-        uartDmaEnable(hwAttrs->baseAddr, UART_DMA_RX);
-    }
-}
-
-/*
- *  ======== UART2Support_dmaStartTx ========
- *  For mutual exclusion, must be called with HWI disabled.
- */
-void UART2Support_dmaStartTx(UART2_Handle handle)
-{
-    UART2CC26X2_Object        *object = handle->object;
-    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
-    volatile tDMAControlTable *txDmaEntry;
-    unsigned char             *srcAddr;
-
-    if (object->txSize > 0) {
-        /* DMA TX already in progress */
-        return;
-    }
-
-    /*
-     *  TODO: This can be made more efficient by checking for txSize less than
-     *  the available FIFO space, and if true, simply load up the FIFO
-     *  on the spot.
-     */
-    object->txSize = RingBuf_getPointer(&object->txBuffer, &srcAddr);
-
-    if (object->txSize > 0) {
-        UARTIntDisable(hwAttrs->baseAddr, UART_INT_EOT);
-        if ((object->eventMask & UART2_EVENT_TX_BEGIN) &&
-                object->eventCallback) {
-            object->eventCallback(handle, UART2_EVENT_TX_BEGIN, 0,
-                    object->userArg);
-        }
-        if (object->txSize > UDMA_XFER_SIZE_MAX) {
-            object->txSize = UDMA_XFER_SIZE_MAX;
-        }
-        txDmaEntry = object->txDmaEntry;
-        txDmaEntry->pvSrcEndAddr = srcAddr + object->txSize - 1;
-
-        txDmaEntry->ui32Control = TX_CONTROL_OPTS;
-
-        /* Set the size in the control options */
-        txDmaEntry->ui32Control |= UDMACC26XX_SET_TRANSFER_SIZE(object->txSize);
-
-        UDMACC26XX_channelEnable(object->udmaHandle, hwAttrs->txChannelMask);
-
-        uartDmaEnable(hwAttrs->baseAddr, UART_DMA_TX);
-
-        if (object->state.txEnabled == false) {
-            /* Set constraints to guarantee transaction */
-            Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
-            object->state.txEnabled = true;
-        }
-    }
-}
-
-/*
- *  ======== UART2Support_dmaStopRx ========
- *  For mutual exclusion, must be called with HWI disabled.
- */
-void UART2Support_dmaStopRx(UART2_Handle handle)
-{
-    UART2CC26X2_Object        *object = handle->object;
-    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
-    UDMACC26XX_HWAttrs  const *hwAttrsUdma = object->udmaHandle->hwAttrs;
-    uint32_t                   bytesRemaining;
-    uint32_t                   rxCount;
-    int                        advanced;
-
-    if (object->rxSize > 0) {
-        UDMACC26XX_channelDisable(object->udmaHandle, hwAttrs->rxChannelMask);
-        uartDmaDisable(hwAttrs->baseAddr, UART_DMA_RX);
-        UDMACC26XX_clearInterrupt(object->udmaHandle, hwAttrs->rxChannelMask);
-
-        bytesRemaining = uDMAChannelSizeGet(hwAttrsUdma->baseAddr,
-                dmaChannelNum(hwAttrs->rxChannelMask));
-        rxCount = object->rxSize - bytesRemaining;
-        advanced = RingBuf_putAdvance(&object->rxBuffer, rxCount);
-
-        object->rxSize = 0;
-    }
-
-    (void)advanced;
-}
-
-/*
- *  ======== UART2Support_dmaStopTx ========
- *  For mutual exclusion, must be called with HWI disabled.
- */
-void UART2Support_dmaStopTx(UART2_Handle handle)
-{
-    UART2CC26X2_Object        *object = handle->object;
-    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
-    UDMACC26XX_HWAttrs  const *hwAttrsUdma = object->udmaHandle->hwAttrs;
-    uint32_t                   bytesRemaining;
-    uint32_t                   txCount;
-    int                        consumed;
-
-    if (object->txSize > 0) {
-        UDMACC26XX_channelDisable(object->udmaHandle, hwAttrs->txChannelMask);
-        uartDmaDisable(hwAttrs->baseAddr, UART_DMA_TX);
-        UDMACC26XX_clearInterrupt(object->udmaHandle, hwAttrs->txChannelMask);
-
-        bytesRemaining = uDMAChannelSizeGet(hwAttrsUdma->baseAddr,
-                dmaChannelNum(hwAttrs->txChannelMask));
-        txCount = object->txSize - bytesRemaining;
-        consumed = RingBuf_getConsume(&object->txBuffer, txCount);
-
-        object->txSize = 0;
-    }
-
-    (void)consumed;
-}
-
-/*
- *  ======== UART2Support_enableInts ========
- *  Function to enable receive, receive timeout, and error interrupts
- */
-void UART2Support_enableInts(UART2_Handle handle)
-{
-    UART2CC26X2_Object        *object = handle->object;
-    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
-
-    if (object->eventCallback) {
-        if (object->eventMask & UART2_EVENT_OVERRUN) {
-            UARTIntClear(hwAttrs->baseAddr, UART_INT_OE);
-            UARTIntEnable(hwAttrs->baseAddr, UART_INT_OE);
-        }
-    }
-    UARTIntEnable(hwAttrs->baseAddr, UART_INT_RT);
-}
-
-/*
- *  ======== UART2Support_enableRx ========
- *  Call with interrupts disabled
- */
-void UART2Support_enableRx(UART2_HWAttrs const *hwAttrs)
-{
-    /* Enable RX but not interrupts, since we may be using DMA */
-    HWREG(hwAttrs->baseAddr + UART_O_CTL) |= UART_CTL_RXE;
-}
-
-/*
- *  ======== UART2Support_enableTx ========
- *  Enable TX - interrupts must be disabled
- */
-void UART2Support_enableTx(UART2_HWAttrs const *hwAttrs)
-{
-    HWREG(hwAttrs->baseAddr + UART_O_CTL) |= UART_CTL_TXE;
-}
-
-/*
- *  ======== UART2Support_powerRelConstraint ========
- */
-void UART2Support_powerRelConstraint(void)
-{
-    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
-}
-
-/*
- *  ======== UART2Support_powerSetConstraint ========
- */
-void UART2Support_powerSetConstraint(void)
-{
-    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
-}
-
-/*
- *  ======== UART2Support_rxStatus2ErrorCode ========
- *  Convert RX status (OE, BE, PE, FE) to a UART2 error code.
- */
-int_fast16_t UART2Support_rxStatus2ErrorCode(uint32_t errorData)
-{
-    uint32_t status;
-
-    status = UART2CC26X2_getRxStatus(errorData);
-    return (-((int_fast16_t)status));
-}
-
-/*
- *  ======== UART2Support_sendData ========
- *  Function to send data
- */
-uint32_t UART2Support_sendData(UART2_HWAttrs const *hwAttrs, size_t size,
-        uint8_t *buf)
-{
-    uint32_t writeCount = 0;
-
-    while (size) {
-        if (!UARTCharPutNonBlocking(hwAttrs->baseAddr, *buf)) {
-            break;
-        }
-        buf++;
-        writeCount++;
-        size--;
-    }
-
-    return (writeCount);
-}
-
-/*
- *  ======== UART2Support_txDone ========
- *  Used when interrupts are not enabled.
- */
-bool UART2Support_txDone(UART2_HWAttrs const *hwAttrs)
-{
-    if (UARTBusy(hwAttrs->baseAddr)) {
-        return (false);
-    }
-
-    return (true);
-}
-
-/*
- *  ======== UART2Support_uartRxError ========
- *  Function to clear RX errors
- */
-int UART2Support_uartRxError(UART2_HWAttrs const *hwAttrs)
-{
-    int      status = UART2_STATUS_SUCCESS;
-    uint32_t errStatus;
-
-    /* Check for Rx error since the last read */
-    errStatus = UARTRxErrorGet(hwAttrs->baseAddr);
-    status = UART2Support_rxStatus2ErrorCode(errStatus);
-    UARTRxErrorClear(hwAttrs->baseAddr); /* Clear receive errors */
 
     return (status);
 }
 
 /*
- *  ======== UART2CC26X2_eventCallback ========
- *  A dummy event callback function in case user didn't provide one
+ *  ======== UART2CC26X2_readCancel ========
  */
-static void UART2CC26X2_eventCallback(UART2_Handle handle, uint32_t event,
-        uint32_t data, void *userArg)
+void UART2CC26X2_readCancel(UART2_Handle handle)
 {
+    UART2CC26X2_Object          *object = handle->object;
+    uintptr_t                    key;
+
+    if (object->state.readMode == UART2_Mode_POLLING) {
+        return;
+    }
+
+    key = HwiP_disable();
+
+    cancelDmaRx(handle);
+
+    if (object->readSize == 0) {
+        HwiP_restore(key);
+        return;
+    }
+
+    /* Release the power constraint */
+    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+
+    object->readSize = 0;
+    object->rxStatus = UART2_STATUS_ECANCELLED;
+
+    HwiP_restore(key);
+
+    object->readCallback(handle, object->readBuf, object->bytesRead,
+            object->userArg, UART2_STATUS_ECANCELLED);
 }
 
 /*
- *  ======== UART2CC26X2_getPowerMgrId ========
+ *  ======== UART2CC26X2_write ========
  */
-static uint_fast16_t UART2CC26X2_getPowerMgrId(uint32_t baseAddr)
+int_fast16_t UART2CC26X2_write(UART2_Handle handle, const void *buffer,
+        size_t size, size_t *bytesWritten)
+{
+    UART2CC26X2_Object          *object = handle->object;
+    UART2CC26X2_HWAttrs const   *hwAttrs = handle->hwAttrs;
+    uintptr_t                    key;
+    int                          status = UART2_STATUS_SUCCESS;
+    uint32_t                     writeCount;
+    unsigned char               *buf = (unsigned char *)buffer;
+    size_t                       nBytesWritten;
+    size_t                      *pNBytesWritten;
+
+    if (size == 0) {
+        return (UART2_STATUS_EINVALID);
+    }
+
+    pNBytesWritten = (bytesWritten == NULL) ? &nBytesWritten : bytesWritten;
+
+    key = HwiP_disable();
+
+    if (!object->state.opened) {
+        HwiP_restore(key);
+        return (UART2_STATUS_EINVALID);
+    }
+
+    /*
+     *  Make sure any previous write has fininshed.  If TX is still
+     *  enabled, the write has not yet finished.
+     *  In blocking mode, UART2_cancel() may have posted the semaphore,
+     *  so we use writeSize to ensure that there are no on-going writes.
+     *  This ensures that we can return the txStatus to the caller without
+     *  it having been reset to 0 by a pre-empting thread.
+     */
+    if (object->state.txEnabled ||
+            (object->writeSize &&
+                    (object->state.writeMode == UART2_Mode_BLOCKING))) {
+        HwiP_restore(key);
+        return (UART2_STATUS_EINUSE);
+    }
+
+    /* Save the data to be written and restore interrupts. */
+    object->writeBuf = buffer;
+    object->writeSize = size;
+    object->writeCount = size;
+    object->bytesWritten = 0;
+
+    object->state.txEnabled = true;
+    object->txStatus = UART2_STATUS_SUCCESS;
+
+    HwiP_restore(key);
+
+    /* Enable TX */
+    HWREG(hwAttrs->baseAddr + UART_O_CTL) |= UART_CTL_TXE;
+
+    if (object->state.writeMode == UART2_Mode_POLLING) {
+
+        writeCount = 0;
+        while (size) {
+            if (!UARTCharPutNonBlocking(hwAttrs->baseAddr, *buf)) {
+                break;
+            }
+            buf++;
+            writeCount++;
+            size--;
+        }
+        *pNBytesWritten = writeCount;
+        object->state.txEnabled = false;
+        return (status);
+    }
+
+    /* Set constraints to guarantee transaction */
+    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
+
+    object->nWriteTransfers = (object->writeSize + MAX_SIZE - 1) / MAX_SIZE;
+    UART2CC26X2_configDmaTx(handle);
+
+    /* If writeMode is blocking, block and get the state. */
+    if (object->state.writeMode == UART2_Mode_BLOCKING) {
+        /* Pend on semaphore and wait for Hwi to finish. */
+        if (SemaphoreP_OK != SemaphoreP_pend(&(object->writeSem),
+                    object->writeTimeout)) {
+            /* Semaphore timed out, make the write empty */
+            key = HwiP_disable();
+            UARTIntDisable(hwAttrs->baseAddr, UART_INT_TX | UART_INT_EOT);
+            UARTIntClear(hwAttrs->baseAddr, UART_INT_TX | UART_INT_EOT);
+
+            if (object->state.txEnabled) {
+
+                /* Disable TX */
+                HWREG(hwAttrs->baseAddr + UART_O_CTL) &= ~(UART_CTL_TXE);
+
+                Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+                object->state.txEnabled = false;
+                object->txStatus = UART2_STATUS_ETIMEOUT;
+            }
+            HwiP_restore(key);
+        }
+        status = object->txStatus; // UART2_cancel() may have posted semaphore
+        *pNBytesWritten = object->bytesWritten;
+        object->writeSize = 0;  // Allow the next UART2_write
+    }
+
+    return (status);
+}
+
+/*
+ *  ======== UART2CC26X2_writeCancel ========
+ */
+void UART2CC26X2_writeCancel(UART2_Handle handle)
+{
+    UART2CC26X2_Object          *object = handle->object;
+    UART2CC26X2_HWAttrs const   *hwAttrs = handle->hwAttrs;
+    UDMACC26XX_HWAttrs  const   *hwAttrsUdma;
+    uintptr_t                    key;
+    uint32_t                     bytesRemaining;
+
+    hwAttrsUdma = object->udmaHandle->hwAttrs;
+
+    key = HwiP_disable();
+
+    UARTDMADisable(hwAttrs->baseAddr, UART_DMA_TX);
+    UDMACC26XX_channelDisable(object->udmaHandle, hwAttrs->txChannelMask);
+    UDMACC26XX_clearInterrupt(object->udmaHandle, hwAttrs->txChannelMask);
+
+    /* Return if there is no write */
+    if ((object->writeSize == 0) && !object->state.txEnabled) {
+        HwiP_restore(key);
+        return;
+    }
+
+    object->state.txEnabled = false;
+
+    bytesRemaining = uDMAChannelSizeGet(hwAttrsUdma->baseAddr,
+            hwAttrs->txChannelMask >> 1);
+
+    object->bytesWritten = object->writeSize - bytesRemaining;
+    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+    object->writeSize = 0;
+    object->txStatus = UART2_STATUS_ECANCELLED;
+
+    HwiP_restore(key);
+
+    object->writeCallback(handle, (void *)object->writeBuf,
+            object->bytesWritten, object->userArg, UART2_STATUS_ECANCELLED);
+}
+
+/*
+ *  ======== cancelDmaRx ========
+ */
+static void cancelDmaRx(UART2_Handle handle)
+{
+    UART2CC26X2_Object          *object = handle->object;
+    UART2CC26X2_HWAttrs const   *hwAttrs = handle->hwAttrs;
+    UDMACC26XX_HWAttrs  const   *hwAttrsUdma;
+    uintptr_t                    key;
+    uint32_t                     bytesRemaining;
+
+    hwAttrsUdma = object->udmaHandle->hwAttrs;
+
+    if ((object->state.readReturnMode == UART2_ReadReturnMode_PARTIAL) ||
+            (object->state.readMode == UART2_Mode_POLLING)) {
+        return;
+    }
+
+    key = HwiP_disable();
+
+    UARTDMADisable(hwAttrs->baseAddr, UART_DMA_RX);
+    UDMACC26XX_channelDisable(object->udmaHandle, hwAttrs->rxChannelMask);
+    UDMACC26XX_clearInterrupt(object->udmaHandle, hwAttrs->rxChannelMask);
+
+    /* Return if there is no read */
+    if (object->readSize == 0) {
+        HwiP_restore(key);
+        return;
+    }
+
+    bytesRemaining = uDMAChannelSizeGet(hwAttrsUdma->baseAddr,
+            dmaChannelNum(hwAttrs->rxChannelMask));
+
+    object->bytesRead = object->readSize - bytesRemaining;
+
+    HwiP_restore(key);
+}
+
+/*
+ *  ======== enableRX ========
+ */
+static void enableRX(UART2_Handle handle)
+{
+    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
+    uintptr_t                  key;
+
+    key = HwiP_disable();
+
+    /* Enable RX but not interrupts, since we may be using DMA */
+    HWREG(hwAttrs->baseAddr + UART_O_CTL) |= UART_CTL_RXE;
+
+    HwiP_restore(key);
+}
+
+/*
+ *  ======== getPowerMgrId ========
+ */
+static uint_fast16_t getPowerMgrId(uint32_t baseAddr)
 {
     switch (baseAddr) {
         case UART0_BASE:
             return (PowerCC26XX_PERIPH_UART0);
-#if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2)
         case UART1_BASE:
             return (PowerCC26X2_PERIPH_UART1);
-#endif
         default:
             return ((uint_fast16_t)(~0U));
     }
 }
 
 /*
- *  ======== UART2CC26X2_hwiIntFxn ========
- *  Hwi function that processes UART interrupts.
+ *  ======== initHw ========
  */
-static void UART2CC26X2_hwiIntFxn(uintptr_t arg)
+static void initHw(UART2_Handle handle)
 {
-    uint32_t                   status;
-    uint32_t                   errStatus = 0;
-    uint32_t                   event;
-    UART2_Handle               handle = (UART2_Handle)arg;
-    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
-    UART2CC26X2_Object        *object = handle->object;
-    unsigned char             *dstAddr;
-    int                        space;
-
-    /* Clear interrupts */
-    status = UARTIntStatus(hwAttrs->baseAddr, true);
-    UARTIntClear(hwAttrs->baseAddr, status);
-
-    if (status & (UART_INT_OE | UART_INT_BE | UART_INT_PE | UART_INT_FE) &&
-            object->eventCallback) {
-        object->state.overrunActive = false;
-        object->state.overrunCount = 0;     // TODO: Move this
-        if (status & UART_INT_OE) {
-            /*
-             *  Overrun error occurred, get what we can.  No need to stop
-             *  the DMA, should already have stopped by now.
-             */
-            UART2CC26X2_getRxData(handle, RingBuf_space(&object->rxBuffer));
-            /* Throw away the rest in order to clear the overrun */
-            while (!(HWREG(hwAttrs->baseAddr + UART_O_FR) & UART_FR_RXFE)) {
-                volatile uint8_t data = HWREG(hwAttrs->baseAddr + UART_O_DR);
-                (void)data;
-            }
-            ++object->state.overrunCount;
-            if (object->state.overrunActive == false) {
-                object->state.overrunActive = true;
-            }
-        }
-
-        errStatus = UARTRxErrorGet(hwAttrs->baseAddr);
-        event = UART2CC26X2_getRxStatus(errStatus & object->eventMask);
-
-        if (event && object->eventCallback) {
-            object->eventCallback(handle, event,
-                    object->state.overrunCount, object->userArg);
-        }
-        object->rxStatus = UART2Support_rxStatus2ErrorCode(errStatus);
-    }
-
-    /* UDMACC26XX_channelDone() checks for rxChannel bit set in REQDONE */
-    if (UDMACC26XX_channelDone(object->udmaHandle, hwAttrs->rxChannelMask) ||
-            (status & UART_INT_RT)) {
-        /* Read finished */
-        UART2Support_dmaStopRx(handle);
-        UART2Support_dmaStartRx(handle);
-
-        if ((object->state.readMode == UART2_Mode_CALLBACK) &&
-                object->readCount) {
-            UART2CC26X2_readCallback(handle);
-        }
-        SemaphoreP_post(&object->readSem);
-    }
-
-    if (UDMACC26XX_channelDone(object->udmaHandle, hwAttrs->txChannelMask) &&
-            (object->txSize > 0)) {
-        /* Write finished */
-        UART2Support_dmaStopTx(handle);
-        UART2Support_dmaStartTx(handle);
-        if ((object->state.writeMode == UART2_Mode_CALLBACK) &&
-                object->writeCount) {
-            space = RingBuf_putPointer(&object->txBuffer, &dstAddr);
-            if (space > object->writeCount) {
-                space = object->writeCount;
-            }
-            memcpy(dstAddr, object->writeBuf + object->bytesWritten, space);
-
-            /* Update the ring buffer state with the number of bytes copied */
-            RingBuf_putAdvance(&object->txBuffer, space);
-
-            object->bytesWritten += space;
-            object->writeCount -= space;
-
-            /* Start dma in case txSize was 0 */
-            UART2Support_dmaStartTx(handle);
-
-            if ((object->writeCount == 0) && object->writeInUse) {
-                object->writeInUse = false;
-                object->writeCallback(handle, (void *)object->writeBuf,
-                        object->bytesWritten, object->userArg,
-                        UART2_STATUS_SUCCESS);
-            }
-        }
-
-        if (object->txSize == 0) {
-            /*
-             *  No more data pending in the TX buffer, wait for it to finish
-             *  shifting out of the transmit shift register.
-             */
-            UARTIntEnable(hwAttrs->baseAddr, UART_INT_EOT);
-        }
-        SemaphoreP_post(&object->writeSem);
-    }
-
-    if (status & (UART_INT_EOT)) {
-        /* End of Transmission occurred */
-        HWREG(hwAttrs->baseAddr + UART_O_CTL) &= ~UART_CTL_TXE;
-
-        if (object->state.txEnabled) {
-            object->state.txEnabled = false;
-
-            if ((object->eventMask & UART2_EVENT_TX_FINISHED) &&
-                    object->eventCallback) {
-                object->eventCallback(handle, UART2_EVENT_TX_FINISHED, 0,
-                        object->userArg);
-            }
-
-            /* Release constraint because there are no active transactions */
-            Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
-        }
-
-        UARTIntDisable(hwAttrs->baseAddr, UART_INT_EOT);
-    }
-}
-
-/*
- *  ======== UART2CC26X2_initHw ========
- */
-static void UART2CC26X2_initHw(UART2_Handle handle)
-{
-    ClockP_FreqHz              freq;
-    UART2CC26X2_Object        *object = handle->object;
-    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
+    ClockP_FreqHz                 freq;
+    UART2CC26X2_Object           *object = handle->object;
+    UART2CC26X2_HWAttrs const    *hwAttrs = handle->hwAttrs;
 
     /*
      *  Configure frame format and baudrate.  UARTConfigSetExpClk() disables
@@ -1032,24 +1001,12 @@ static void UART2CC26X2_initHw(UART2_Handle handle)
     UARTFIFOLevelSet(hwAttrs->baseAddr, txFifoThreshold[hwAttrs->txIntFifoThr],
             rxFifoThreshold[hwAttrs->rxIntFifoThr]);
 
-    /*
-     * If Flow Control is enabled, configure hardware flow control
-     * for CTS and/or RTS.
-     */
-    if (UART2CC26X2_isFlowControlEnabled(hwAttrs) &&
-        (hwAttrs->ctsPin != PIN_UNASSIGNED)) {
-        uartEnableCTS(hwAttrs->baseAddr);
+    /* If Flow Control is enabled, configure hardware flow control */
+    if (isFlowControlEnabled(hwAttrs)) {
+        UARTHwFlowControlEnable(hwAttrs->baseAddr);
     }
     else {
-        uartDisableCTS(hwAttrs->baseAddr);
-    }
-
-    if (UART2CC26X2_isFlowControlEnabled(hwAttrs) &&
-        (hwAttrs->rtsPin != PIN_UNASSIGNED)) {
-        uartEnableRTS(hwAttrs->baseAddr);
-    }
-    else {
-        uartDisableRTS(hwAttrs->baseAddr);
+        UARTHwFlowControlDisable(hwAttrs->baseAddr);
     }
 
     /* Enable UART FIFOs */
@@ -1059,8 +1016,8 @@ static void UART2CC26X2_initHw(UART2_Handle handle)
     HWREG(hwAttrs->baseAddr + UART_O_CTL) |= UART_CTL_UARTEN;
 
     if ((hwAttrs->rxChannelMask > 0) && (hwAttrs->txChannelMask > 0)) {
-        /* Prevent DMA interrupt on UART2CC26X2_open() */
-        uartDmaDisable(hwAttrs->baseAddr, UART_DMA_RX);
+        // Prevent DMA interrupt on UART2CC26X2_open()
+        UARTDMADisable(hwAttrs->baseAddr, UART_DMA_RX);
         UDMACC26XX_channelDisable(object->udmaHandle, hwAttrs->rxChannelMask);
         UDMACC26XX_clearInterrupt(object->udmaHandle, hwAttrs->rxChannelMask);
 
@@ -1073,14 +1030,14 @@ static void UART2CC26X2_initHw(UART2_Handle handle)
 }
 
 /*
- *  ======== UART2CC26X2_initIO ========
+ *  ======== initIO ========
  */
-static bool UART2CC26X2_initIO(UART2_Handle handle)
+static bool initIO(UART2_Handle handle)
 {
-    UART2CC26X2_Object        *object = handle->object;
-    UART2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
-    PIN_Config                 uartPinTable[5];
-    uint32_t                   pinCount = 0;
+    UART2CC26X2_Object         *object = handle->object;
+    UART2CC26X2_HWAttrs const  *hwAttrs = handle->hwAttrs;
+    PIN_Config                  uartPinTable[5];
+    uint32_t                    pinCount = 0;
 
     /* Build local list of pins, allocate through PIN driver and map ports */
     uartPinTable[pinCount++] = hwAttrs->rxPin | PIN_INPUT_EN;
@@ -1094,16 +1051,11 @@ static bool UART2CC26X2_initIO(UART2_Handle handle)
     uartPinTable[pinCount++] = hwAttrs->txPin | PIN_INPUT_DIS | PIN_PUSHPULL |
             PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH;
 
-    if (UART2CC26X2_isFlowControlEnabled(hwAttrs)) {
-        if (hwAttrs->ctsPin != PIN_UNASSIGNED) {
-            uartPinTable[pinCount++] = hwAttrs->ctsPin | PIN_INPUT_EN;
-        }
-
-        if (hwAttrs->rtsPin != PIN_UNASSIGNED) {
-            /* Avoiding glitches on the RTS, see comment for TX pin above. */
-            uartPinTable[pinCount++] = hwAttrs->rtsPin | PIN_INPUT_DIS |
-                    PIN_PUSHPULL | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH;
-        }
+    if (isFlowControlEnabled(hwAttrs)) {
+        uartPinTable[pinCount++] = hwAttrs->ctsPin | PIN_INPUT_EN;
+        /* Avoiding glitches on the RTS, see comment for TX pin above. */
+        uartPinTable[pinCount++] = hwAttrs->rtsPin | PIN_INPUT_DIS |
+                PIN_PUSHPULL | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH;
     }
 
     /* Terminate pin list */
@@ -1124,95 +1076,102 @@ static bool UART2CC26X2_initIO(UART2_Handle handle)
             (hwAttrs->baseAddr == UART0_BASE ?
                     IOC_PORT_MCU_UART0_TX : IOC_PORT_MCU_UART1_TX));
 
-    if (UART2CC26X2_isFlowControlEnabled(hwAttrs)) {
-        if (hwAttrs->ctsPin != PIN_UNASSIGNED) {
-            PINCC26XX_setMux(object->hPin, hwAttrs->ctsPin,
-                    (hwAttrs->baseAddr == UART0_BASE ?
-                            IOC_PORT_MCU_UART0_CTS : IOC_PORT_MCU_UART1_CTS));
-        }
-
-        if (hwAttrs->rtsPin != PIN_UNASSIGNED) {
-            PINCC26XX_setMux(object->hPin, hwAttrs->rtsPin,
-                    (hwAttrs->baseAddr == UART0_BASE ?
-                            IOC_PORT_MCU_UART0_RTS : IOC_PORT_MCU_UART1_RTS));
-        }
+    if (isFlowControlEnabled(hwAttrs)) {
+        PINCC26XX_setMux(object->hPin, hwAttrs->ctsPin,
+                (hwAttrs->baseAddr == UART0_BASE ?
+                        IOC_PORT_MCU_UART0_CTS : IOC_PORT_MCU_UART1_CTS));
+        PINCC26XX_setMux(object->hPin, hwAttrs->rtsPin,
+                (hwAttrs->baseAddr == UART0_BASE ?
+                        IOC_PORT_MCU_UART0_RTS : IOC_PORT_MCU_UART1_RTS));
     }
 
     return (true);
 }
 
 /*
- *  ======== UART2CC26X2_postNotifyFxn ========
+ *  ======== postNotifyFxn ========
  *  Called by Power module when waking up from LPDS.
  */
-static int UART2CC26X2_postNotifyFxn(unsigned int eventType, uintptr_t eventArg,
+static int postNotifyFxn(unsigned int eventType, uintptr_t eventArg,
         uintptr_t clientArg)
 {
     /* Reconfigure the hardware if returning from sleep */
     if (eventType == PowerCC26XX_AWAKE_STANDBY) {
-        UART2CC26X2_initHw((UART2_Handle) clientArg);
+        initHw((UART2_Handle) clientArg);
     }
 
     return (Power_NOTIFYDONE);
 }
 
 /*
- *  ======== UART2CC26X2_readCallback ========
+ *  ======== readData ========
  */
-static void UART2CC26X2_readCallback(UART2_Handle handle)
+static int32_t readData(UART2_Handle handle, int32_t size)
 {
     UART2CC26X2_Object *object = handle->object;
-    unsigned char      *srcAddr;
-    int                 available;
+    UART2CC26X2_HWAttrs const  *hwAttrs = handle->hwAttrs;;
+    int32_t             data;
 
-    while (((available = RingBuf_getPointer(&object->rxBuffer, &srcAddr)) > 0)
-           && (object->readCount > 0)) {
-        if (available > object->readCount) {
-            available = object->readCount;
-        }
+    if (size > object->readCount) {
+        size = object->readCount;
+    }
 
-        memcpy(object->readBuf + object->bytesRead, srcAddr, available);
-
-        RingBuf_getConsume(&object->rxBuffer, available);
-
-        /* Restart the DMA since we cleared space in the ring buffer */
-        UART2Support_dmaStopRx(handle);
-        UART2Support_dmaStartRx(handle);
-
-        object->readCount -= available;
-        object->bytesRead += available;
-
-        if ((object->state.readReturnMode == UART2_ReadReturnMode_PARTIAL) ||
-                (object->readCount == 0)) {
-            object->readInUse = false;
-
-            object->readCallback(handle, (void *)object->readBuf,
-                    object->bytesRead, object->userArg,
-                    UART2_STATUS_SUCCESS);
+    while (size) {
+        data = UARTCharGetNonBlocking(hwAttrs->baseAddr);
+        if (data == -1) {
             break;
         }
+        *(object->readBuf + object->bytesRead) = (uint8_t)(data & 0xFF);
+        object->bytesRead++;
+        object->readCount--;
+        size--;
     }
+
+    return (size);
 }
 
 /*
- *  ======== UART2CC26X2_readTimeout ========
- *  Clock timeout function for blocking reads with timeout.
+ *  ======== readSemCallback ========
+ *  Simple callback to post a semaphore for the blocking mode.
  */
-static void UART2CC26X2_readTimeout(uintptr_t arg)
+static void readSemCallback(UART2_Handle handle, void *buffer, size_t count,
+        void *userArg, int_fast16_t status)
 {
-    UART2CC26X2_Object *object = ((UART2_Handle)arg)->object;
+    UART2CC26X2_Object *object = handle->object;
 
-    object->state.readTimedOut = true;
     SemaphoreP_post(&(object->readSem));
 }
 
 /*
- *  ======== UART2CC26X2_writeTimeout ========
+ *  ======== readDone ========
+ *  Called from the ISR only.
  */
-static void UART2CC26X2_writeTimeout(uintptr_t arg)
+static void readDone(UART2_Handle handle)
 {
-    UART2CC26X2_Object *object = ((UART2_Handle)arg)->object;
+    UART2CC26X2_Object *object = (UART2CC26X2_Object *)(handle->object);
+    size_t              count;
 
-    object->state.writeTimedOut = true;
+    count = object->bytesRead;
+
+    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+
+    if (object->state.readMode == UART2_Mode_CALLBACK) {
+        /* Set readSize to 0 to allow UART2_read() to be called */
+        object->readSize = 0;
+    }
+
+    object->readCallback(handle, object->readBuf, count, object->userArg,
+            object->rxStatus);
+}
+
+/*
+ *  ======== writeSemCallback ========
+ *  Simple callback to post a semaphore for the blocking mode.
+ */
+static void writeSemCallback(UART2_Handle handle, void *buffer, size_t count,
+        void *userArg, int_fast16_t status)
+{
+    UART2CC26X2_Object *object = handle->object;
+
     SemaphoreP_post(&(object->writeSem));
 }

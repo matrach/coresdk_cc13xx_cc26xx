@@ -3,7 +3,7 @@
 *
 *  Description:    CC13x2/CC26x2 API for Proprietary mode commands
 *
-*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2019, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -894,8 +894,6 @@ struct __RFC_STRUCT rfc_CMD_PROP_RX_ADV_SNIFF_s {
 
 //! @}
 
-#define CMD_PROP_RADIO_SETUP_PA                                 CMD_PROP_RADIO_SETUP
-
 //! \addtogroup CMD_PROP_RADIO_SETUP_PA
 //! @{
 //! Proprietary Mode Radio Setup Command for 2.4 GHz with PA Switching Fields
@@ -1004,8 +1002,6 @@ struct __RFC_STRUCT rfc_CMD_PROP_RADIO_SETUP_PA_s {
 } __RFC_STRUCT_ATTR;
 
 //! @}
-
-#define CMD_PROP_RADIO_DIV_SETUP_PA                                 CMD_PROP_RADIO_DIV_SETUP
 
 //! \addtogroup CMD_PROP_RADIO_DIV_SETUP_PA
 //! @{

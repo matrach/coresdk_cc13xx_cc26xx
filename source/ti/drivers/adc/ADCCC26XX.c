@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, Texas Instruments Incorporated
+ * Copyright (c) 2016-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -59,8 +59,7 @@
 
 #if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X0_CC26X0)
     #include DeviceFamily_constructPath(driverlib/aux_wuc.h)
-#elif (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2 || \
-    DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X1_CC26X1)
+#elif (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2)
     #define AUX_EVCTL_EVTOMCUFLAGS_ADC_DONE         AUX_EVCTL_EVTOMCUFLAGS_AUX_ADC_DONE
     #define AUX_EVCTL_EVTOMCUFLAGS_ADC_IRQ          AUX_EVCTL_EVTOMCUFLAGS_AUX_ADC_IRQ
 #endif
@@ -272,7 +271,7 @@ int_fast16_t ADCCC26XX_convert(ADC_Handle handle, uint16_t *value){
  *  ======== ADCCC26XX_convertToMicroVolts ========
  */
 uint32_t ADCCC26XX_convertToMicroVolts(ADC_Handle handle, uint16_t adcValue){
-    ADCCC26XX_HWAttrs           const *hwAttrs;
+    ADCCC26XX_HWAttrs     const *hwAttrs;
     uint32_t                    adjustedValue;
 
     DebugP_assert(handle);
@@ -291,18 +290,11 @@ uint32_t ADCCC26XX_convertToMicroVolts(ADC_Handle handle, uint16_t adcValue){
                                                           offset);
     }
 
-    if(hwAttrs->refSource == ADCCC26XX_FIXED_REFERENCE)
-    {
-        return AUXADCValueToMicrovolts(
-                (hwAttrs->inputScalingEnabled ?
-                        AUXADC_FIXED_REF_VOLTAGE_NORMAL :
-                        AUXADC_FIXED_REF_VOLTAGE_UNSCALED),
-                        adjustedValue);
-    }
-    else
-    {
-        return AUXADCValueToMicrovolts(hwAttrs->refVoltage, adjustedValue);
-    }
+    return AUXADCValueToMicrovolts(
+            (hwAttrs->inputScalingEnabled ?
+                    AUXADC_FIXED_REF_VOLTAGE_NORMAL :
+                    AUXADC_FIXED_REF_VOLTAGE_UNSCALED),
+                    adjustedValue);
 }
 
 /*
@@ -323,7 +315,7 @@ void ADCCC26XX_init(ADC_Handle handle){
  */
 ADC_Handle ADCCC26XX_open(ADC_Handle handle, ADC_Params *params){
     ADCCC26XX_Object            *object;
-    ADCCC26XX_HWAttrs           const *hwAttrs;
+    ADCCC26XX_HWAttrs     const *hwAttrs;
     PIN_Config                  adcPinTable[2];
 
     DebugP_assert(handle);

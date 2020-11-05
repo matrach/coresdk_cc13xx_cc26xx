@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Texas Instruments Incorporated
+ * Copyright (c) 2018-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,6 +34,8 @@
  * @file       AESGCM.h
  *
  * @brief      AESGCM driver header
+ *
+ * @warning     This is a beta API. It may change in future releases.
  *
  * @anchor ti_drivers_AESGCM_Overview
  * ### Overview #
@@ -149,8 +151,8 @@
  * operation.input             = plaintext;
  * operation.output            = ciphertext;
  * operation.inputLength       = sizeof(plaintext);
- * operation.iv                = iv;
- * operation.ivLength          = sizeof(iv);
+ * operation.nonce             = nonce;
+ * operation.nonceLength       = sizeof(nonce);
  * operation.mac               = mac;
  * operation.macLength         = sizeof(mac);
  *

@@ -1,9 +1,9 @@
 /******************************************************************************
-*  Filename:       rf_patch_rfe_genook.h
+*  Filename:       rf_patch_mce_tof.h
 *
-*  Description: RF core patch for General OOK support in CC13x2 and CC26x2.
+*  Description: RF core MCE patch for time of flight 2Mbps PHY for CC13x2 and CC26x2
 *
-*  Copyright (c) 2015-2020, Texas Instruments Incorporated
+*  Copyright (c) 2015-2019, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -34,14 +34,13 @@
 *
 ******************************************************************************/
 
-
-#ifndef _RF_PATCH_RFE_GENOOK_H
-#define _RF_PATCH_RFE_GENOOK_H
+#ifndef _RF_PATCH_MCE_TOF_H
+#define _RF_PATCH_MCE_TOF_H
 
 #include <stdint.h>
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(inc/hw_types.h)
 
-extern void rf_patch_rfe_genook(void);
+extern void rf_patch_mce_tof(void);
 
 #endif

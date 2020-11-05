@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       ioc.c
-*  Revised:        2020-07-16 14:41:29 +0200 (Thu, 16 Jul 2020)
-*  Revision:       58010
+*  Revised:        2017-06-05 12:13:49 +0200 (Mon, 05 Jun 2017)
+*  Revision:       49096
 *
 *  Description:    Driver for the IOC.
 *
-*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -562,8 +562,6 @@ IOCPinTypeSsiMaster(uint32_t ui32Base, uint32_t ui32Rx,
             IOCPortConfigureSet(ui32Clk, IOC_PORT_MCU_SSI0_CLK, IOC_STD_OUTPUT);
         }
     }
-    // Handle SSI1_BASE / SPI1_BASE last with a hard else to keep Agama and
-    // Chameleon code in ROM identical to this source
     else
     {
         if(ui32Rx != IOID_UNUSED)
@@ -622,8 +620,6 @@ IOCPinTypeSsiSlave(uint32_t ui32Base, uint32_t ui32Rx,
             IOCPortConfigureSet(ui32Clk, IOC_PORT_MCU_SSI0_CLK, IOC_STD_INPUT);
         }
     }
-    // Handle SSI1_BASE / SPI1_BASE last with a hard else to keep Agama and
-    // Chameleon code in ROM identical to this source
     else
     {
         if(ui32Rx != IOID_UNUSED)

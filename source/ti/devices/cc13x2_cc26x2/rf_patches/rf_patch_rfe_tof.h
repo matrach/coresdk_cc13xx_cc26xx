@@ -1,9 +1,9 @@
 /******************************************************************************
-*  Filename:       rf_patch_cpe_multi_bt5_coex.h
+*  Filename:       rf_patch_rfe_tof.h
 *
-*  Description: RF core patch for coexistence support for Bluetooth 5 ("BLE" and "BLE5" API command sets) in CC13x2 and CC26x2
+*  Description: RF core RFE patch for time of flight 2Mbps PHY for CC13x2 and CC26x2
 *
-*  Copyright (c) 2015-2020, Texas Instruments Incorporated
+*  Copyright (c) 2015-2019, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -33,35 +33,15 @@
 *  POSSIBILITY OF SUCH DAMAGE.
 *
 ******************************************************************************/
-#ifndef _RF_PATCH_CPE_MULTI_BT5_COEX_H
-#define _RF_PATCH_CPE_MULTI_BT5_COEX_H
 
-//*****************************************************************************
-//
-// If building with a C++ compiler, make all of the definitions in this header
-// have a C binding.
-//
-//*****************************************************************************
-#ifdef __cplusplus
-extern "C"
-{
-#endif
+
+#ifndef _RF_PATCH_RFE_TOF_H
+#define _RF_PATCH_RFE_TOF_H
 
 #include <stdint.h>
-#include <string.h>
+#include <ti/devices/DeviceFamily.h>
+#include DeviceFamily_constructPath(inc/hw_types.h)
 
-extern void cleanMultiBt5CoexPatch(void);
-extern void refreshMultiBt5CoexPatch(void);
-extern void rf_patch_cpe_multi_bt5_coex(void);
+extern void rf_patch_rfe_tof(void);
 
-//*****************************************************************************
-//
-// Mark the end of the C bindings section for C++ compilers.
-//
-//*****************************************************************************
-#ifdef __cplusplus
-}
 #endif
-
-#endif //  _RF_PATCH_CPE_MULTI_BT5_COEX_H
-

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -51,8 +51,7 @@
 
 #if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X0_CC26X0)
     #include DeviceFamily_constructPath(inc/hw_aon_sysctl.h)
-#elif (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2 || \
-    DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X1_CC26X1)
+#elif (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2)
     #include DeviceFamily_constructPath(inc/hw_aon_pmctl.h)
 #endif
 
@@ -271,15 +270,8 @@ PIN_Status PIN_init(const PIN_Config pinConfig[]) {
             break;
         case CHIP_TYPE_CC1352P:
         case CHIP_TYPE_CC2652P:
-            if (ChipInfo_GetPackageType() == PACKAGE_7x7) {
-                pinLowerBound = 5;
-                reservedPinMask |= 0x1F;
-            }
-            else if (ChipInfo_GetPackageType() == PACKAGE_7x7_SIP) {
-                /* Do nothing for PACKAGE_7x7_SIP since the CC2652PSIP has
-                 * DIO0-DIO31 bonded out.
-                 */
-            }
+            pinLowerBound = 5;
+            reservedPinMask |= 0x1F;
             break;
         default:
             break;
@@ -382,6 +374,7 @@ PIN_Status PIN_init(const PIN_Config pinConfig[]) {
 PIN_Handle PIN_open(PIN_State* state, const PIN_Config pinList[]) {
     uint32_t i;
     bool pinsAllocated = true;
+    uint32_t portMask = 0;
     PIN_Id pinId;
 
     if ((state == NULL) || (pinList == NULL)) {
@@ -400,6 +393,9 @@ PIN_Handle PIN_open(PIN_State* state, const PIN_Config pinList[]) {
                     pinHandleTable[pinId]) {
                 pinsAllocated = false;
                 break;
+            } else {
+                // Generate bitmask for port operations (always one port on CC26xx)
+                portMask |= (1 << pinId);
             }
         }
     }

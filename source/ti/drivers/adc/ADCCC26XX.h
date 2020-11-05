@@ -149,8 +149,6 @@ typedef struct {
     bool                        returnAdjustedVal;
     /*!< Is input scaling enabled */
     bool                        inputScalingEnabled;
-    /*!< Reference voltage in microvolts*/
-    uint_fast32_t               refVoltage;
     /*!< Reference source for the ADC to use */
     ADCCC26XX_Reference_Source  refSource;
     /*!< Time the ADC spends sampling. This is load dependent */

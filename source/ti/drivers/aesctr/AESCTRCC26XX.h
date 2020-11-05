@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Texas Instruments Incorporated
+ * Copyright (c) 2018-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,8 @@
  *  @file       AESCTRCC26XX.h
  *
  *  @brief      AESCTR driver implementation for the CC26XX family
+ *
+ *  @warning     This is a beta API. It may change in future releases.
  *
  *  This file should only be included in the board file to fill the AESCTR_config
  *  struct.

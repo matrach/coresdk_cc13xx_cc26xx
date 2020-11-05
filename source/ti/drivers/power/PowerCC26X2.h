@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -56,7 +56,6 @@
 #include <ti/drivers/dpl/ClockP.h>
 #include <ti/drivers/Power.h>
 #include <ti/drivers/power/PowerCC26XX.h>
-#include <ti/drivers/Temperature.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,11 +91,6 @@ extern "C" {
 #define PowerCC26X2_PERIPH_PKA          PowerCC26XX_NUMRESOURCES /*!< Resource ID: PKA Module */
 
 #define PowerCC26X2_PERIPH_UART1        PowerCC26XX_NUMRESOURCES + 1 /*!< Resource ID: UART1 */
-
-/*! The temperature delta in degrees C before the RTC is re-compensated when
- *  SCLK_LF is derived from SCLK_HF and SCLK_HF is supplied by HPOSC.
- */
-#define PowerCC26X2_HPOSC_RTC_COMPENSATION_DELTA 3
 
 /* \cond */
 #define PowerCC26X2_NUMRESOURCES   (PowerCC26XX_NUMRESOURCES + 2) /* Number of resources in database */
@@ -240,18 +234,6 @@ typedef struct {
     Power_PolicyFxn policyFxn;   /*!< The Power policy function */
 } PowerCC26X2_ModuleState;
 
-/*!
- *  @brief Enable RTC compensation when SCLK_LF is derived from HPOSC
- *
- *  Enables automatic compensation for temperature based clock drift of the RTC
- *  when SCLK_LF is derived from HPOSC.
- *
- *  It only needs to be called once after the system boots.
- *
- *  This function should only be called when SCLK_LF is configured to be drived
- *  from HPOSC.
- */
-void PowerCC26X2_enableHposcRtcCompensation(void);
 
 #ifdef __cplusplus
 }

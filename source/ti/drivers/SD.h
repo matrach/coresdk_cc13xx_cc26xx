@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, Texas Instruments Incorporated
+ * Copyright (c) 2016-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -377,7 +377,8 @@ extern void SD_close(SD_Handle handle);
 extern int_fast16_t SD_control(SD_Handle handle, uint_fast16_t cmd, void *arg);
 
 /*!
- *  @brief Function to obtain the total number of sectors on the SD card.
+ *  @brief A function pointer to a driver specific implementation of
+ *         SD_getNumSectors().
  *         Note: Total Card capacity is the (NumberOfSectors * SectorSize).
  *
  *  @pre SD Card has been initialized using SD_initialize().
@@ -422,7 +423,8 @@ extern void SD_init(void);
 extern void SD_Params_init(SD_Params *params);
 
  /*!
- *  @brief  Function to initialize the SD card.
+ *  @brief  A function pointer to a driver specific implementation of
+ *          SD_initialize().
  *
  *  @pre    SD controller has been opened by calling SD_open().
  *
@@ -434,8 +436,8 @@ extern void SD_Params_init(SD_Params *params);
 extern int_fast16_t SD_initialize(SD_Handle handle);
 
 /*!
- *  @brief Function to open the SD peripheral with the index and parameters
- *         specified.
+ *  @brief A function pointer to a driver specific implementation of
+ *          SD_open().
  *
  *  @pre SD controller has been initialized using SD_init().
  *
@@ -455,10 +457,8 @@ extern int_fast16_t SD_initialize(SD_Handle handle);
 extern SD_Handle SD_open(uint_least8_t index, SD_Params *params);
 
 /*!
- *  @brief Function that reads the specified sectors from the SD card.
- *         The destination is specified by \a buf. The starting sector
- *         is specified by \a sector and the total number of sectors to
- *         read is provided by \a secCount.
+ *  @brief A function pointer to a driver specific implementation of
+ *          SD_read().
  *
  *  @pre SD controller has been opened and initialized by calling SD_open()
  *       followed by SD_initialize().
@@ -480,10 +480,8 @@ extern int_fast16_t SD_read(SD_Handle handle, void *buf,
     int_fast32_t sector, uint_fast32_t secCount);
 
 /*!
- *  @brief Function that writes data to the specified sectors of the SD card.
- *         The source is specified by \a buf. The starting sector to write
- *         is specified by \a sector and the total number of sectors to write
- *         is provided by \a secCount.
+ *  @brief A function pointer to a driver specific implementation of
+ *         SD_write().
  *
  *  @pre SD controller has been opened and initialized by calling SD_open()
  *       followed by SD_initialize().

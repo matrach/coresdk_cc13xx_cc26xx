@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, Texas Instruments Incorporated
+ * Copyright (c) 2016-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -689,7 +689,6 @@ extern "C" {
 #define   RF_EventTxEntryDone         (1 << 10)  ///< Tx queue data entry state changed to Finished
 #define   RF_EventTxBufferChange      (1 << 11)  ///< A buffer change is complete
 #define   RF_EventPaChanged           (1 << 14)  ///< The PA was reconfigured on the fly.
-#define   RF_EventSamplesEntryDone    (1 << 15)  ///< CTE data has been copied, only valid if autocopy feature is enabled
 #define   RF_EventRxOk                (1 << 16)  ///< Packet received with CRC OK, payload, and not to be ignored
 #define   RF_EventRxNOk               (1 << 17)  ///< Packet received with CRC error
 #define   RF_EventRxIgnored           (1 << 18)  ///< Packet received with CRC OK, but to be ignored
@@ -838,21 +837,6 @@ extern "C" {
  * configuration through #RF_postCmd().
  */
 #define RF_CTRL_SET_AVAILABLE_RAT_CHANNELS_MASK   8
-/*!
- * @brief Control code used by RF_control to enable or disable the coexistence feature at runtime
- *
- * This control code can be used to manually override the statically configured setting for global enable/disable
- * of the coexistence feature. It will have no effect if coexistence is not originally enabled and included
- * in the compiled project.
- * 
- * Example:
- * @code
- * // Disable the CoEx feature
- * uint32_t coexEnabled = 0;
- * RF_control(rfHandle, RF_CTRL_COEX_CONTROL, &coexEnabled);
- * @endcode
- */
-#define RF_CTRL_COEX_CONTROL  9
 /** @}*/
 
 /**
@@ -1119,62 +1103,6 @@ typedef enum {
     RF_PriorityNormal  = 0, ///< Default priority. Use this in single-client applications.
 } RF_Priority;
 
-/** 
- *  @brief Priority level for coexistence priority signal.
- *
- *  When the RF driver is configured for three-wire coexistence mode, one of the
- *  output wires will signal the priority level of the coexistence request. When
- *  RF operations are scheduled with RF_scheduleCmd(), the scheduler can be configured
- *  to override the default coexistence priority level for the RF operation.
- *  
- *  The coexistence priority level is binary because it translates to a high/low output signal.
- */
-typedef enum {
-    RF_PriorityCoexDefault  = 0,  ///< Default priority. Use value configured by setup command.
-    RF_PriorityCoexLow      = 1,  ///< Low priority. Override default value configured by setup command.
-    RF_PriorityCoexHigh     = 2,  ///< High priority. Override default value configured by setup command.
-} RF_PriorityCoex;
-
-/** 
- *  @brief Behavior for coexistence request signal.
- *
- *  When the RF driver is configured for three-wire coexistence mode, one of the
- *  output wires will signal the request level of the coexistence request. When
- *  RF operations are scheduled with RF_scheduleCmd(), the scheduler can be configured
- *  to override the default coexistence request line behavior for the RF operation in RX.
- * 
- *  This override will be ignored if the option to set request for an entire chain is active.
- */
-typedef enum {
-    RF_RequestCoexDefault     = 0, ///< Default request line behavior. Use value configured by setup command.
-    RF_RequestCoexAssertRx    = 1, ///< Assert REQUEST in RX. Override default value configured by setup command.
-    RF_RequestCoexNoAssertRx  = 2, ///< Do not assert REQUEST in RX. Override default value configured by setup command.
-} RF_RequestCoex;
-
-/** 
- *  @brief Runtime coexistence override parameters
- *
- *  When  RF operations are scheduled with RF_scheduleCmd(), the scheduler can be configured
- *  to override the default coexistence behavior. This structure encapsulates the available parameters.
- */
-typedef struct {
-    RF_PriorityCoex   priority;   ///< Priority level for coexistence priority signal.
-    RF_RequestCoex    request;    ///< Behavior for coexistence request signal.
-} RF_CoexOverride;
-
-/** 
- *  @brief Coexistence override settings for BLE5 application scenarios
- *
- *  This configuration is provided to the BLE Stack to override the default coexistence configuration
- *  depending on the current application and stack states.
- */
-typedef struct {
-    RF_CoexOverride    bleInitiator;
-    RF_CoexOverride    bleConnected;
-    RF_CoexOverride    bleBroadcaster;
-    RF_CoexOverride    bleObserver;
-} RF_CoexOverride_BLEUseCases;
-
 /** @brief Status codes for various RF driver functions.
  *
  *  RF_Stat is reported as return value for RF driver functions which
@@ -1288,36 +1216,16 @@ typedef enum {
  *          // Disable antenna switch
  *          break;
  *
+ *      case RF_GlobalEventInit:
+ *          // Configure I/O pins
+ *          break;
+ *
  *      default:
  *          // Unsubscribed events must not be issued.
  *          assert(false);
  *      }
  *  }
  *  @endcode
- *
- *  For the coexistence (coex) feature, some of the events are used to handle
- *  the I/O muxing of the GPIO signals for REQUEST, PRIORITY and GRANT.
- * 
- *  @code
- *  void globalCallback(RF_Handle h, RF_GlobalEvent event, void* arg)
- *  {
- *      RF_Cmd* pCurrentCmd = (RF_Cmd*)arg;
- *  
- *      if (event & RF_GlobalEventInit) {
- *          // Initialize and mux coex I/O pins to RF Core I/O signals
- *      }
- *      else if (event & RF_GlobalEventCmdStart) {
- *          if (pCurrentCmd->coexPriority != RF_PriorityCoexDefault){
- *              // Release PRIORITY pin from RF Core and set it to value of coexPriority
- *          }
- *      }
- *      else if (event & RF_GlobalEventCmdStop) {
- *          if (pCurrentCmd->coexPriority != RF_PriorityCoexDefault) {
- *              // Mux PRIORITY pin to RF Core signal to return to default priority level
- *          }
- *      }
- *  }
- *  @endcode 
  *
  * \sa #RF_GlobalCallback
  */
@@ -1332,19 +1240,7 @@ typedef enum {
 
     RF_GlobalEventInit           = (1 << 2),             ///< RF_open() is called for the first time (number of registered clients changes from 0 to 1).
                                                          ///< The \a arg argument is empty.
-                                                         ///< Task context.
-
-    RF_GlobalEventCmdStart       = (1 << 3),             ///< A command chain is being dispatched to the radio.
-                                                         ///< The \a arg argument is a pointer to the current command.
-                                                         ///< HWI context.
-
-    RF_GlobalEventCmdStop        = (1 << 4),             ///< Command termination event is handled.
-                                                         ///< The \a arg argument is a pointer to the current command.
-                                                         ///< HWI context.
-
-    RF_GlobalEventCoexControl    = (1 << 5),             ///< Change to coex configuration is requested
-                                                         ///< The \a arg argument is pointer to at least 8-bit wide int with value 1=enable, or 0=disable
-                                                         ///< Task/HWI context.
+                                                         ///< SWI context.
 } RF_GlobalEvent;
 
 
@@ -1645,8 +1541,6 @@ struct RF_Cmd_s {
     RF_EndType           endType;     /* Command end type */
     uint32_t             duration;    /* Command duration (in RAT ticks) */
     uint32_t             activityInfo; /* General value supported by user */
-    RF_PriorityCoex      coexPriority; /* Command priority to use for coexistence request. */
-    RF_RequestCoex       coexRequest; /* Command REQUEST line behavior to use for coexistence request. */
 };
 
 /** @brief RF Hardware attributes.
@@ -1668,10 +1562,10 @@ typedef struct {
  */
 typedef enum
 {
-    RF_ExecuteActionNone             = 0,  ///< Execute if no conflict, let current command finish if conflict.
-    RF_ExecuteActionRejectIncoming   = 1,  ///< Abort the incoming command, letting the ongoing command finish.
-    RF_ExecuteActionAbortOngoing     = 2,  ///< Abort the ongoing command and run dispatcher again.
-} RF_ExecuteAction;
+    RF_ConflictNone   = 0,
+    RF_ConflictReject = 1,
+    RF_ConflictAbort  = 2,
+} RF_Conflict;
 
 /** @brief Describes the location within the pend queue where the new command was inserted by the scheduler.
  */
@@ -1706,23 +1600,18 @@ typedef enum
 typedef RF_ScheduleStatus (*RF_SubmitHook)(RF_Cmd* pCmdNew, RF_Cmd* pCmdBg, RF_Cmd* pCmdFg, List_List* pPendQueue, List_List* pDoneQueue);
 
 /**
- *  @brief Defines the execution and conflict resolution hook  at runtime.
+ *  @brief Defines the conflict resolution in runtime.
  *
- *  The function is invoked before a scheduled command is about to be executed.
- *  If a conflict is identified before the start-time of the next radio command
- *  in the pending queue, this information is passed to the hook. The return
- *  value of type #RF_ExecuteAction determines the policy to be followed by the RF
- *  driver.
+ *  The function is invoked if a conflict is identified before the start-time of the next radio command in
+ *  the pending queue. The return value of type #RF_Conflict determines the policy to be followed by the RF driver.
  *
  *  The arguments are:
  *      - \a pCmdBg is the running background command.
  *      - \a pCmdFg is the running foreground command.
  *      - \a pPendQueue points to the head structure of pend queue.
  *      - \a pDoneQueue points to the head structure of done queue.
- *      - \a bConflict whether the incoming command conflicts with ongoing.
- *      - \a conflictCmd command that conflicts with ongoing.
  */
-typedef RF_ExecuteAction (*RF_ExecuteHook)(RF_Cmd* pCmdBg, RF_Cmd* pCmdFg, List_List* pPendQueue, List_List* pDoneQueue, bool bConflict, RF_Cmd* conflictCmd);
+typedef RF_Conflict (*RF_ConflictHook)(RF_Cmd* pCmdBg, RF_Cmd* pCmdFg, List_List* pPendQueue, List_List* pDoneQueue);
 
 /** @brief RF scheduler policy.
  *
@@ -1731,7 +1620,7 @@ typedef RF_ExecuteAction (*RF_ExecuteHook)(RF_Cmd* pCmdBg, RF_Cmd* pCmdFg, List_
  */
 typedef struct {
   RF_SubmitHook   submitHook;   ///< Function hook implements the scheduling policy to be executed at the time of RF_scheduleCmd API call.
-  RF_ExecuteHook  executeHook; ///< Function hook implements the runtime last second go-no-go execute decision
+  RF_ConflictHook conflictHook; ///< Function hook implements the runtime conflict resolution, if any identified at the start time of next command.
 } RFCC26XX_SchedulerPolicy;
 
 /** @brief Controls the behavior of the RF_scheduleCmd() API.
@@ -1757,8 +1646,6 @@ typedef struct {
    RF_EndType          endType;             ///< End type for the end time
    uint32_t            duration;            ///< Duration in RAT Ticks for the radio command
    uint32_t            activityInfo;        ///< Activity info provided by user
-   RF_PriorityCoex     coexPriority;        ///< Priority to use for coexistence request.
-   RF_RequestCoex      coexRequest;         ///< REQUEST line behavior to use for coexistence request.
 } RF_ScheduleCmdParams;
 
 /** @brief RF request access parameter struct
@@ -2024,17 +1911,15 @@ extern RF_CmdHandle RF_postCmd(RF_Handle h, RF_Op *pOp, RF_Priority ePri, RF_Cal
 extern RF_ScheduleStatus RF_defaultSubmitPolicy(RF_Cmd* pCmdNew, RF_Cmd* pCmdBg, RF_Cmd* pCmdFg, List_List* pPendQueue, List_List* pDoneQueue);
 
 /**
- *  @brief  Makes a final decision before dispatching a scheduled command.
+ *  @brief  Makes a final decision when a conflict in run-time is identified.
  *
- *  @param pCmdBg       Running background command.
- *  @param pCmdFg       Running foreground command.
- *  @param pPendQueue   Pointer to the head structure of pend queue.
- *  @param pDoneQueue   Pointer to the head structure of done queue.
- *  @param bConflict    Whether the incoming command conflicts with the ongoing.
- *  @param conflictCmd  Command that conflicts with ongoing.
- *  @return             RF_defaultSubmitPolicy identifies the success or failure of queuing.
+ *  @param pCmdBg     Running background command.
+ *  @param pCmdFg     Running foreground command.
+ *  @param pPendQueue Pointer to the head structure of pend queue.
+ *  @param pDoneQueue Pointer to the head structure of done queue..
+ *  @return           RF_defaultSubmitPolicy identifies the success or failure of queuing.
  */
-extern RF_ExecuteAction RF_defaultExecutionPolicy(RF_Cmd* pCmdBg, RF_Cmd* pCmdFg, List_List* pPendQueue, List_List* pDoneQueue, bool bConflict, RF_Cmd* conflictCmd);
+extern RF_Conflict RF_defaultConflictPolicy(RF_Cmd* pCmdBg, RF_Cmd* pCmdFg, List_List* pPendQueue, List_List* pDoneQueue);
 
 
 /**
@@ -2572,12 +2457,6 @@ extern int8_t RF_TxPowerTable_findPowerLevel(RF_TxPowerTable_Entry table[], RF_T
 extern RF_TxPowerTable_Value RF_TxPowerTable_findValue(RF_TxPowerTable_Entry table[], int8_t powerLevel);
 
 
-/**
- * @brief Enables temperature monitoring and temperature based drift compensation
- *
- */
-extern void RF_enableHPOSCTemperatureCompensation(void);
-
 #ifdef __cplusplus
 }
 #endif
@@ -2591,3 +2470,4 @@ extern void RF_enableHPOSCTemperatureCompensation(void);
 //! @}
 //
 //*****************************************************************************
+

@@ -143,40 +143,12 @@ const ECCParams_CurveParams ECCParams_Curve25519 = {
 };
 
 /*
- *  ======== ECCParams_formatCurve25519PrivateKey ========
+ *  ======== ECCParams_FormatCurve25519PrivateKey ========
  */
-int_fast16_t ECCParams_formatCurve25519PrivateKey(CryptoKey *myPrivateKey){
+int_fast16_t ECCParams_FormatCurve25519PrivateKey(CryptoKey *myPrivateKey){
     myPrivateKey->u.plaintext.keyMaterial[31] &= 0xF8;
     myPrivateKey->u.plaintext.keyMaterial[0] &= 0x7F;
     myPrivateKey->u.plaintext.keyMaterial[0] |= 0x40;
-
-    return ECCParams_STATUS_SUCCESS;
-}
-
-/*
- *  ======== ECCParams_getUncompressedGeneratorPoint ========
- */
-int_fast16_t ECCParams_getUncompressedGeneratorPoint(const ECCParams_CurveParams *curveParams,
-                                                     uint8_t *buffer,
-                                                     size_t length) {
-
-    size_t paramLength = curveParams->length;
-    size_t pointLength = (paramLength * 2) + 1;
-
-    if (length < pointLength) {
-        return ECCParams_STATUS_ERROR;
-    }
-
-    /* Reverse and concatenate x and y */
-    uint32_t i = 0;
-    for (i = 0; i < paramLength; i++) {
-        buffer[i + 1]               = curveParams->generatorX[paramLength - i - 1];
-        buffer[i + 1 + paramLength] = curveParams->generatorY[paramLength - i - 1];
-    }
-
-    buffer[0] = 0x04;
-    /* Fill the remaining buffer with 0 if needed */
-    memset(buffer + pointLength, 0, length - pointLength);
 
     return ECCParams_STATUS_SUCCESS;
 }

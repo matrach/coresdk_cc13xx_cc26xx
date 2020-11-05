@@ -127,7 +127,7 @@ void TimerCC26XX_callbackfxn(GPTimerCC26XX_Handle gptHandle, GPTimerCC26XX_IntMa
         TimerCC26XX_stop(handle);
     }
     if (object->mode != Timer_ONESHOT_BLOCKING) {
-        object->callBack(handle, Timer_STATUS_SUCCESS);
+        object->callBack(handle);
     }
 }
 

@@ -3,7 +3,7 @@
 *
 *  Description: RF core patch for IEEE 802.15.4-2006 support ("IEEE" API command set) in CC13x2 and CC26x2
 *
-*  Copyright (c) 2015-2020, Texas Instruments Incorporated
+*  Copyright (c) 2015-2019, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -67,10 +67,9 @@ extern "C"
 
 
 CPE_PATCH_TYPE patchImageIeee802154[] = {
-   0x2100405d,
-   0x21004089,
-   0x21004095,
-   0x2100413b,
+   0x21004059,
+   0x21004085,
+   0x21004091,
    0x79654c07,
    0xf809f000,
    0x40697961,
@@ -103,62 +102,8 @@ CPE_PATCH_TYPE patchImageIeee802154[] = {
    0x477081d1,
    0x210002e0,
    0x21000088,
-   0x4b272201,
-   0x48252102,
-   0xb5104718,
-   0x47804825,
-   0x6a404825,
-   0xd10d2800,
-   0x200a4924,
-   0x28005608,
-   0x1c40da09,
-   0x4608d007,
-   0x6a403820,
-   0x42884920,
-   0x4780d100,
-   0xf7ffbd10,
-   0xbd10ffe3,
-   0x4b1e2100,
-   0x46084a1c,
-   0x20014718,
-   0x0240491c,
-   0x481c6008,
-   0x780122fb,
-   0x70014011,
-   0x38ec4812,
-   0xb5104700,
-   0x47884918,
-   0x39204911,
-   0xd0072801,
-   0xd5040402,
-   0x85082000,
-   0x62484814,
-   0xbd102001,
-   0x4b096a4a,
-   0x429a3bec,
-   0x4a11d101,
-   0x4907e005,
-   0x4b106a4a,
-   0xd1f2429a,
-   0x624a4a0f,
-   0x0000bd10,
-   0x00000806,
-   0x0000069f,
-   0x000292a1,
-   0x21000108,
-   0x21000154,
-   0x00029263,
-   0x210040e7,
-   0x0002b4b5,
-   0xe000e180,
-   0x21000380,
-   0x000296f7,
-   0x210040dd,
-   0x21004123,
-   0x00029569,
-   0x21004119,
 };
-#define _NWORD_PATCHIMAGE_IEEE_802_15_4 90
+#define _NWORD_PATCHIMAGE_IEEE_802_15_4 35
 
 #define _NWORD_PATCHCPEHD_IEEE_802_15_4 0
 
@@ -217,7 +162,6 @@ PATCH_FUN_SPEC void configureIeee802154Patch(void)
    pPatchTab[76] = 0;
    pPatchTab[140] = 1;
    pPatchTab[150] = 2;
-   pPatchTab[164] = 3;
 }
 
 PATCH_FUN_SPEC void applyIeee802154Patch(void)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020, Texas Instruments Incorporated
+ * Copyright (c) 2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -168,7 +168,6 @@ void I2S_close(I2S_Handle handle)
 
     I2SInPointerSet(I2S0_BASE, 0U);
     I2SOutPointerSet(I2S0_BASE, 0U);
-
     I2SSampleStampInConfigure(I2S0_BASE, 0xFFFFU);
     I2SSampleStampOutConfigure(I2S0_BASE, 0xFFFFU);
 
@@ -227,6 +226,10 @@ void I2S_startClocks(I2S_Handle handle) {
 
     initHw(handle);
     enableClocks(handle);
+
+    /* Configuring sample stamp generator will trigger the audio stream to start */
+    I2SSampleStampInConfigure(I2S0_BASE, 0);
+    I2SSampleStampOutConfigure(I2S0_BASE, 0);
 }
 
 /*
@@ -254,6 +257,7 @@ void I2S_stopClocks(I2S_Handle handle) {
  *  ======== I2S_startRead ========
  */
 void I2S_startRead(I2S_Handle handle) {
+
     I2SCC26XX_Object *object = handle->object;
 
     /* If a read interface is activated */
@@ -271,7 +275,11 @@ void I2S_startRead(I2S_Handle handle) {
         object->ptrUpdateFxn(handle, &object->read);
 
         /* Configuring sample stamp generator will trigger the audio stream to start */
-        I2SSampleStampInConfigure(I2S0_BASE, (HWREGH(I2S0_BASE + I2S_O_STMPWCNT) + object->startUpDelay));
+        if(object->read.delay != 0U) {
+
+            I2SSampleStampInConfigure(I2S0_BASE, object->read.delay);
+            I2SWclkCounterReset(I2S0_BASE);
+        }
     }
 }
 
@@ -297,8 +305,11 @@ void I2S_startWrite(I2S_Handle handle) {
         object->ptrUpdateFxn(handle, &object->write);
 
         /* Configuring sample stamp generator will trigger the audio stream to start */
-        I2SSampleStampOutConfigure(I2S0_BASE, (HWREGH(I2S0_BASE + I2S_O_STMPWCNT) + object->startUpDelay));
+        if(object->write.delay != 0U) {
 
+            I2SSampleStampOutConfigure(I2S0_BASE, object->write.delay);
+            I2SWclkCounterReset(I2S0_BASE);
+        }
     }
 }
 
@@ -488,32 +499,8 @@ static void updatePointer(I2S_Handle handle, I2SCC26XX_Interface *interface) {
                     interface->activeTransfer = (I2S_Transaction*)List_next(&transactionFinished->queueElement);
                 }
                 else {
-                   /* Application did nothing, we need to stop the interface to avoid errors
-                    * However, we cannot spin here while the hardware stops, this is an ISR context!
-                    */
-                   if (interface->stopInterface == I2S_stopRead)
-                   {
-                       I2SIntDisable(I2S0_BASE, I2S_INT_DMA_IN);
-
-                       I2SIntClear(I2S0_BASE, I2S_INT_DMA_IN);
-                       I2SIntClear(I2S0_BASE, I2S_INT_PTR_ERR);
-
-                       I2SSampleStampInConfigure(I2S0_BASE, 0xFFFFU);
-
-                       I2SInPointerSet(I2S0_BASE, 0U);
-                   }
-
-                   if(interface->stopInterface == I2S_stopWrite)
-                   {
-                       I2SIntDisable(I2S0_BASE, I2S_INT_DMA_OUT);
-
-                       I2SIntClear(I2S0_BASE, I2S_INT_DMA_OUT);
-                       I2SIntClear(I2S0_BASE, I2S_INT_PTR_ERR);
-
-                       I2SSampleStampOutConfigure(I2S0_BASE, 0xFFFFU);
-
-                       I2SOutPointerSet(I2S0_BASE, 0U);
-                   }
+                    /* Application did nothing, we need to stop the interface to avoid errors */
+                    interface->stopInterface(handle);
                 }
             }
         }
@@ -558,8 +545,10 @@ static bool initObject(I2S_Handle handle, I2S_Params *params) {
         object->phaseType            = params->phaseType;
         object->bitsPerWord          = params->bitsPerWord;
         object->startUpDelay         = params->startUpDelay;
+        object->read.delay           = 1;
+        object->write.delay          = 1;
 
-        object->dataShift            = (params->trueI2sFormat)? 1: 0;
+        object->dataShift            = (params->trueI2sFormat)? (object->bitsPerWord - params->memorySlotLength + 1): 0;
 
              if(params->memorySlotLength == I2S_MEMORY_LENGTH_16BITS)    {object->memorySlotLength = I2S_MEMORY_LENGTH_16BITS_CC26XX;}
         else if(params->memorySlotLength == I2S_MEMORY_LENGTH_24BITS)    {object->memorySlotLength = I2S_MEMORY_LENGTH_24BITS_CC26XX;}
@@ -609,6 +598,34 @@ static bool initObject(I2S_Handle handle, I2S_Params *params) {
 
                     object->read.memoryStep  = (object->read.memoryStep!=0U)?  (uint16_t)(params->fixedBufferLength/dmaBuffSizeDivider) :0U;
                     object->write.memoryStep = (object->write.memoryStep!=0U)? (uint16_t)(params->fixedBufferLength/dmaBuffSizeDivider) :0U;
+
+                    if(object->phaseType == I2S_PHASE_TYPE_DUAL){
+                        /*
+                         * When MONO channel mode is used in Dual Phase mode, we have to take in consideration that we will not
+                         * consume the "normal" amount of data (in read mode, we need only to store half the data received and
+                         * in write mode, each sample is written twice on the output)
+                         */
+                        if((object->dataInterfaceSD0.numberOfChannelsUsed != 1 || object->dataInterfaceSD0.interfaceConfig == I2S_SD0_DISABLED) &&
+                           (object->dataInterfaceSD1.numberOfChannelsUsed != 1 || object->dataInterfaceSD1.interfaceConfig == I2S_SD1_DISABLED)){
+
+                            /* No interface is set in MONO mode... Nothing to do! */
+                        }
+                        else {
+
+                            /* We have one or more Input and/or 1 Output in mode MONO...  */
+                            object->dmaBuffSizeConfig = ((object->dmaBuffSizeConfig + 1)/ 2) - 1; /* Adapt the length of the DMA transfers */
+
+                            if((object->dataInterfaceSD0.numberOfChannelsUsed == 1 && object->dataInterfaceSD0.interfaceConfig == I2S_SD0_INPUT) ||
+                               (object->dataInterfaceSD1.numberOfChannelsUsed == 1 && object->dataInterfaceSD1.interfaceConfig == I2S_SD1_INPUT)){
+                                object->read.memoryStep = object->read.memoryStep / 2; /* Adapt the length of the data considered */
+                            }
+
+                            if((object->dataInterfaceSD0.numberOfChannelsUsed == 1 && object->dataInterfaceSD0.interfaceConfig == I2S_SD0_OUTPUT) ||
+                               (object->dataInterfaceSD1.numberOfChannelsUsed == 1 && object->dataInterfaceSD1.interfaceConfig == I2S_SD1_OUTPUT)){
+                                object->write.memoryStep = object->write.memoryStep / 2; /* Adapt the length of the data considered */
+                            }
+                        }
+                    }
                 }
             }
             else {
@@ -851,17 +868,11 @@ static void configSerialFormat(I2S_Handle handle) {
                          (uint8_t)object->samplingEdge,
                          (bool)  (object->phaseType == I2S_PHASE_TYPE_DUAL),
                                  (object->bitsPerWord +  object->afterWordPadding),
-                                 (object->dmaBuffSizeConfig + 1));
+                                  object->startUpDelay);
 
-    /* To avoid false start-up triggers, I2S:STMPINTRIG and I2S:STMPOUTTRIG must
-     * initially be equal to or higher than I2S:STMPWPER, which is set as
-     * (object->dmaBuffSizeConfig + 1) above. Since, 0xFFFFU > UINT8_MAX + 1
-     * this should prevent false triggers. UINT8_MAX is used above because it
-     * matches the type of dmaBuffSizeConfig, and is the width of the
-     * corresponding register in hardware.
-     */
-    I2SSampleStampInConfigure(I2S0_BASE, 0xFFFFU);
-    I2SSampleStampOutConfigure(I2S0_BASE, 0xFFFFU);
+    /* Prevent DMA start by setting an unreachable trigger */
+    I2SSampleStampInConfigure(I2S0_BASE,  (uint16_t)((uint16_t)object->bitsPerWord + (uint16_t)object->afterWordPadding));
+    I2SSampleStampOutConfigure(I2S0_BASE, (uint16_t)((uint16_t)object->bitsPerWord + (uint16_t)object->afterWordPadding));
 }
 
 /*
@@ -922,16 +933,13 @@ static void enableClocks(I2S_Handle handle) {
     /* Get the pointer to the object*/
     object = handle->object;
 
-    I2SStart(I2S0_BASE, object->dmaBuffSizeConfig);
+    /* Enable internal clocks */
+    PRCMAudioClockEnable();
 
     /* Enable sample stamps */
     I2SSampleStampEnable(I2S0_BASE);
 
-    /* Reset WCLK counter */
-    I2SWclkCounterReset(I2S0_BASE);
-
-    /* Enable internal clocks */
-    PRCMAudioClockEnable();
+    I2SStart(I2S0_BASE, object->dmaBuffSizeConfig);
 
     /* Activate clocks (no clock is running before this call)
      * (clocks must be correctly set before)

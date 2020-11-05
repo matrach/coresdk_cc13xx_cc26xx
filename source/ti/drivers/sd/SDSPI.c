@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -92,7 +92,7 @@ static bool waitUntilReady(SPI_Handle handle);
 static bool transmitDataBlock(SPI_Handle handle, void *buf, uint32_t count,
     uint8_t token);
 
-/* SDSPI function table for SDSPI implementation */
+/* SDSPI function table for SDSPIMSP432 implementation */
 const SD_FxnTable SDSPI_fxnTable = {
     SDSPI_close,
     SDSPI_control,

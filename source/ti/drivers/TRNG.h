@@ -34,6 +34,8 @@
  *
  *  @brief      TRNG driver header
  *
+ *  @warning    This is a beta API. It may change in future releases.
+ *
  *  @anchor ti_drivers_TRNG_Overview
  *  # Overview #
  *  The True Random Number Generator (TRNG) module generates numbers of variable

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -207,6 +207,9 @@ void UARTCC26X2_close(UART_Handle handle)
     UARTCC26X2_Object            *object = handle->object;
     UARTCC26X2_HWAttrs const     *hwAttrs = handle->hwAttrs;
 
+    /* Deallocate pins */
+    PIN_close(object->hPin);
+
     /* Disable UART and interrupts. */
     UARTIntDisable(hwAttrs->baseAddr, UART_INT_TX | UART_INT_RX |
             UART_INT_RT | UART_INT_OE | UART_INT_BE | UART_INT_PE |
@@ -242,9 +245,6 @@ void UARTCC26X2_close(UART_Handle handle)
     }
     SwiP_destruct(&(object->readSwi));
     SwiP_destruct(&(object->writeSwi));
-
-    /* Deallocate pins */
-    PIN_close(object->hPin);
 
     /* Unregister power notification objects */
     Power_unregisterNotify(&object->postNotify);
@@ -897,10 +897,8 @@ static uint_fast16_t getPowerMgrId(uint32_t baseAddr)
     switch (baseAddr) {
         case UART0_BASE:
             return (PowerCC26XX_PERIPH_UART0);
-#if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2)
         case UART1_BASE:
             return (PowerCC26X2_PERIPH_UART1);
-#endif
         default:
             return ((uint_fast16_t)(~0U));
     }
@@ -1161,8 +1159,6 @@ static int readTaskBlocking(UART_Handle handle)
     unsigned char             *buffer = object->readBuf;
 
     object->state.bufTimeout = false;
-    object->state.callCallback = false;
-
     /*
      * It is possible for the object->timeoutClk and the callback function to
      * have posted the object->readSem Semaphore from the previous UART_read

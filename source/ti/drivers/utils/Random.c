@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 Texas Instruments Incorporated
+ * Copyright (c) 2018-2019 Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -80,8 +80,7 @@ int_fast16_t Random_seedAutomatic(void) {
      * to kickstart the PRNG.
      */
     const TRNGCC26XX_HWAttrs hwAttrs = {
-        .samplesPerCycle = TRNGCC26XX_SAMPLES_PER_CYCLE_MIN,
-        .intPriority = ~0,
+        .samplesPerCycle = TRNGCC26XX_SAMPLES_PER_CYCLE_MIN
     };
 
     /* Allocate TRNG instance on the stack since we will not need it

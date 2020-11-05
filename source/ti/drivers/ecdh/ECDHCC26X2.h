@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,8 @@
  *  @file       ECDHCC26X2.h
  *
  *  @brief      ECDH driver implementation for the CC26X2 family
+ *
+ *  @warning     This is a beta API. It may change in future releases.
  *
  *  This file should only be included in the board file to fill the ECDH_config
  *  struct.
@@ -131,7 +133,7 @@ extern "C" {
 /*!
  *  @brief      ECDHCC26X2 states
  *
- *  The ECDH operations are implemented using multiple individual
+ *  The ECDH operations are implemented using multiple invidividual
  *  PKA operations. Since state transitions for these operations are almost
  *  always predictable, the state transitions are encoded linearly in this enum.
  *  The FSM controller will increment the state counter and iterate through

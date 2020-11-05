@@ -209,9 +209,6 @@ extern const ECCParams_CurveParams ECCParams_Curve25519;
 
 /* Utility functions */
 
-/* #define used for backwards compatibility */
-#define ECCParams_FormatCurve25519PrivateKey ECCParams_formatCurve25519PrivateKey
-
 /*!
  *  @brief Formats a CryptoKey to conform to Curve25519 private key requirements.
  *
@@ -227,35 +224,7 @@ extern const ECCParams_CurveParams ECCParams_Curve25519;
  *
  *  @pre Initialize the CryptoKey with a 32-byte buffer in a compliant location.
  */
-int_fast16_t ECCParams_formatCurve25519PrivateKey(CryptoKey *myPrivateKey);
-
-/*!
- *  @brief Extracts the curve generator point from an ecliptic curve description.
- *
- *  The curve parameters #ECCParams_CurveParams::generatorX and
- *  #ECCParams_CurveParams::generatorY are extracted from \c curveParams and
- *  written as a concatenated octet string in big endian order to
- *  \c buffer. The format is defined in SEC 1: Elliptic Curve Cryptography section
- *  2.3.3.
- *
- *  The curve point has the format ``0x04 || X || Y`` and the length is
- *  ``2 * size_of_x_or_y + 1`` where ``0x04`` specifies octet string format.
- *  If the buffer \c length exceeds the curve point length, the remaining
- *  buffer space is zeroed.
- *
- *  @param  curveParams     Points to the input curve parameters
- *  @param  buffer          Points to the destination where the generator point will
- *                          be written to. Make sure that \c buffer is large enough to
- *                          hold
- *  @param  length          Maximum length of \c buffer in bytes.
- *
- *  @retval #ECCParams_STATUS_SUCCESS on success, #ECCParams_STATUS_ERROR if the
- *          provided buffer \c length is insufficient to hold the curve point.
- *
- */
-int_fast16_t ECCParams_getUncompressedGeneratorPoint(const ECCParams_CurveParams *curveParams,
-                                                     uint8_t *buffer,
-                                                     size_t length);
+int_fast16_t ECCParams_FormatCurve25519PrivateKey(CryptoKey *myPrivateKey);
 
 #ifdef __cplusplus
 }

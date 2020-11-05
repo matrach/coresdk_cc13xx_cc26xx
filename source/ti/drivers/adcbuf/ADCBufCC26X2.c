@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Texas Instruments Incorporated
+ * Copyright (c) 2018-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -103,8 +103,7 @@ static void ADCBufCC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1);
 static void ADCBufCC26X2_conversionCallback(ADCBuf_Handle handle,
                                             ADCBuf_Conversion *conversion,
                                             void *completedADCBuffer,
-                                            uint32_t completedChannel,
-                                            int_fast16_t status);
+                                            uint32_t completedChannel);
 static uint32_t ADCBufCC26X2_freqToCounts(uint32_t frequency);
 static void ADCBufCC26X2_cleanADC(ADCBuf_Handle handle);
 static void ADCBufCC26X2_loadDMAControlTableEntry(ADCBuf_Handle handle,
@@ -301,19 +300,6 @@ ADCBuf_Handle ADCBufCC26X2_open(ADCBuf_Handle handle,
         object->callbackFxn = params->callbackFxn;
     }
 
-    /* Check if the ADC data interface is already enabled - if so, then a
-     * previous configuration was halted without cleanly disabling the ADC */
-    if (HWREG(AUX_ANAIF_BASE + AUX_ANAIF_O_ADCCTL) && AUX_ANAIF_ADCCTL_CMD_EN) {
-        /* Disable the ADC and disable UDMA mode for ADC */
-        AUXADCDisable();
-        HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_DMACTL) =
-                AUX_EVCTL_DMACTL_REQ_MODE_SINGLE
-                        | AUX_EVCTL_DMACTL_SEL_FIFO_NOT_EMPTY;
-
-        /* Release the ADC semaphore */
-        AUXSMPHRelease(AUX_SMPH_2);
-    }
-
     /* Clear the event flags to prevent an immediate interrupt from a previous
      * configuration */
     HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_EVTOMCUFLAGSCLR) =
@@ -401,14 +387,6 @@ static void ADCBufCC26X2_hwiFxn (uintptr_t arg) {
     /* Clear the ADC_IRQ flag if it triggered the ISR */
     HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_EVTOMCUFLAGSCLR) = intStatus;
 
-    /* Get the status of the ADC FIFO */
-    intStatus = AUXADCGetFifoStatus();
-
-    /* Check for overflow/underflow events */
-    if (intStatus & (AUXADC_FIFO_OVERFLOW_M | AUXADC_FIFO_UNDERFLOW_M)) {
-        AUXADCFlushFifo();
-    }
-
     /* Post SWI to handle remaining clean up and invocation of callback */
     SwiP_post(&(object->swi));
 }
@@ -452,7 +430,7 @@ static void ADCBufCC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
     HwiP_restore(key);
 
     /* Perform callback */
-    object->callbackFxn((ADCBuf_Handle)arg0, conversion, sampleBuffer, channel, ADCBuf_STATUS_SUCCESS);
+    object->callbackFxn((ADCBuf_Handle)arg0, conversion, sampleBuffer, channel);
 
     DebugP_log0("ADC: swi interrupt context end");
 }
@@ -469,8 +447,7 @@ static void ADCBufCC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
 static void ADCBufCC26X2_conversionCallback(ADCBuf_Handle handle,
                                             ADCBuf_Conversion *conversion,
                                             void *completedADCBuffer,
-                                            uint32_t completedChannel,
-                                            int_fast16_t status)
+                                            uint32_t completedChannel)
 {
     ADCBufCC26X2_Object        *object;
 
@@ -642,7 +619,7 @@ int_fast16_t ADCBufCC26X2_convertCancel(ADCBuf_Handle handle) {
      * itself. No need to call it again. */
     if (object->recurrenceMode == ADCBuf_RECURRENCE_MODE_ONE_SHOT) {
         object->callbackFxn(handle, conversion, conversion->sampleBuffer,
-                            object->currentChannel, ADCBuf_STATUS_SUCCESS);
+                            object->currentChannel);
     }
 
     return ADCBuf_STATUS_SUCCESS;

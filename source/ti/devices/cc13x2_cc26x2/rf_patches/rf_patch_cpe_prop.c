@@ -3,7 +3,7 @@
 *
 *  Description: RF core patch for proprietary radio support ("PROP" API command set) in CC13x2 and CC26x2
 *
-*  Copyright (c) 2015-2020, Texas Instruments Incorporated
+*  Copyright (c) 2015-2019, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -110,10 +110,10 @@ CPE_PATCH_TYPE patchImageProp[] = {
    0xe000e200,
    0x00031641,
    0x00031b23,
-   0xf882f000,
+   0xf834f000,
    0x47004800,
    0x00007f57,
-   0xf882f000,
+   0xf834f000,
    0x47004800,
    0x0000881b,
    0x781a4b09,
@@ -137,45 +137,6 @@ CPE_PATCH_TYPE patchImageProp[] = {
    0x40045000,
    0x40046000,
    0x00004285,
-   0x4d1fb570,
-   0xb2c47828,
-   0x4780481e,
-   0x28037828,
-   0x2c03d134,
-   0x481cd032,
-   0x0d406880,
-   0x481a07c2,
-   0x31604601,
-   0x2a003080,
-   0x241fd003,
-   0x8845570c,
-   0x241ee002,
-   0x8805570c,
-   0xd01f2c00,
-   0x4a154813,
-   0x79006941,
-   0x10484341,
-   0x69494911,
-   0x49101840,
-   0x7f493940,
-   0x05404790,
-   0x42691540,
-   0xdb0d4288,
-   0xdc0b42a8,
-   0x69994b0c,
-   0x4602b288,
-   0x43620c09,
-   0x12520409,
-   0xb2801880,
-   0x61984308,
-   0x0000bd70,
-   0x210002e4,
-   0x00004179,
-   0x21000028,
-   0x21000380,
-   0x21000300,
-   0x000081cb,
-   0x40044040,
    0x490c6b80,
    0x0f000700,
    0x47707148,
@@ -192,13 +153,12 @@ CPE_PATCH_TYPE patchImageProp[] = {
    0x210002e0,
    0x21000088,
 };
-#define _NWORD_PATCHIMAGE_PROP 124
+#define _NWORD_PATCHIMAGE_PROP 85
 
 #define _NWORD_PATCHCPEHD_PROP 0
 
 #define _NWORD_PATCHSYS_PROP 0
 
-#define _IRQ_PATCH_0 0x21004165
 
 
 #ifndef _PROP_SYSRAM_START
@@ -247,7 +207,6 @@ PATCH_FUN_SPEC void enterPropSysPatch(void)
 PATCH_FUN_SPEC void configurePropPatch(void)
 {
    uint8_t *pPatchTab = (uint8_t *) (_PROP_CPERAM_START + _PROP_PATCH_TAB_OFFSET);
-   uint32_t *pIrqPatch = (uint32_t *) (_PROP_CPERAM_START + _PROP_IRQPATCH_OFFSET);
 
 
    pPatchTab[76] = 0;
@@ -258,8 +217,6 @@ PATCH_FUN_SPEC void configurePropPatch(void)
    pPatchTab[152] = 5;
    pPatchTab[151] = 6;
    pPatchTab[73] = 7;
-
-   pIrqPatch[1] = _IRQ_PATCH_0;
 }
 
 PATCH_FUN_SPEC void applyPropPatch(void)
@@ -297,7 +254,6 @@ void rf_patch_cpe_prop(void)
    applyPropPatch();
 }
 
-#undef _IRQ_PATCH_0
 
 //*****************************************************************************
 //

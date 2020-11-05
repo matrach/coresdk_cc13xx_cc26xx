@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -49,10 +49,6 @@
  * specific config, and casting in the general API will ensure that the correct
  * device specific functions are called.
  * This is also reflected in the example code in [Use Cases](@ref USE_CASES).
- * This driver does not support polling modes for UART_read() and UART_write().
- * Text mode (e.g., read returns on receiving a newline character) is also
- * not supported by this driver.  If polling mode or text mode are needed,
- * the UARTCC26X2 driver can be used instead.
  *
  * # General Behavior #
  * Before using the UART in CC26XX:
@@ -223,8 +219,6 @@
  *    - UART_readPolling()
  *    - UART_writePolling()
  *
- *  For polling mode or text processing, the UARTCC26X2 driver can be used.
- *
  * # Use Cases @anchor USE_CASES #
  * ## Basic Receive #
  *  Receive 100 bytes over UART in ::UART_MODE_BLOCKING.
@@ -238,7 +232,7 @@
  *  UART_Params_init(&params);
  *  params.baudRate      = 9600;
  *  params.writeDataMode = UART_DATA_BINARY;
- *  params.readTimeout   = timeoutUs / ClockP_getSystemTickPeriod(); // Default tick period is 10us
+ *  params.readTimeout   = timeoutUs / ClockP_tickPeriod; // Default tick period is 10us
  *
  *  // Open the UART and do the read
  *  handle = UART_open(CONFIG_UART, &params);

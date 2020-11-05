@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, Texas Instruments Incorporated
+ * Copyright (c) 2016-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -48,7 +48,9 @@ is linked in and include this header file as follows:
 
 #include <ti/devices/DeviceFamily.h>
 
-#if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2)
+#if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X0_CC26X0)
+    #include <ti/drivers/rf/RFCC26XX.h>
+#elif (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2)
     #include <ti/drivers/rf/RFCC26X2.h>
 #else
 #error "An incompatible device is defined in the project. \

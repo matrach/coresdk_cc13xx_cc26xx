@@ -302,9 +302,7 @@
  *  This use case will perform a transfer in #SPI_MODE_BLOCKING until the wanted amount of bytes is
  *  transferred or until chip select is deasserted by the SPI master.
  *  This SPI_transfer() call can be used when unknown amount of bytes shall
- *  be transferred.
- *  Note: The partial return is also possible in #SPI_MODE_CALLBACK mode.
- *  Note: Polling transfers are not available when using return partial mode.
+ *  be transferred. Note: The partial return is also possible in #SPI_MODE_CALLBACK mode.
  *  @code
  *  SPI_Handle handle;
  *  SPI_Params params;
@@ -650,10 +648,9 @@ extern "C" {
 /*!
  * @brief Command used by SPI_control to enable partial return
  *
- * Enabling this command allows SPI_transfer to return partial data if the
- * master de-asserts the CS line before the expected number of frames were
- * recieved. This command @b arg is of type @a don't @a care and it returns
- * SPI_STATUS_SUCCESS or SPI_STATUS_ERROR.
+ * Enabling this command allows SPI_transfer to return partial data if data
+ * reception is inactive for a given 32-bit period.  With this command @b arg
+ * is @a don't @a care and it returns SPI_STATUS_SUCCESS.
  */
 #define SPICC26XXDMA_CMD_RETURN_PARTIAL_ENABLE  (SPI_CMD_RESERVED + 0)
 

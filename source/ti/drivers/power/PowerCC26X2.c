@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -42,7 +42,6 @@
 
 #include <ti/drivers/Power.h>
 #include <ti/drivers/power/PowerCC26X2.h>
-#include <ti/drivers/Temperature.h>
 
 /* driverlib header files */
 #include <ti/devices/DeviceFamily.h>
@@ -80,11 +79,6 @@ static void emptyClockFunc(uintptr_t arg);
 static int_fast16_t notify(uint_fast16_t eventType);
 static void oscillatorISR(uintptr_t arg);
 static void switchToTCXO(void);
-static void delayUs(uint32_t us);
-static void hposcRtcCompensateFxn(int16_t currentTemperature,
-                                  int16_t thresholdTemperature,
-                                  uintptr_t clientArg,
-                                  Temperature_NotifyObj *notifyObject);
 
 /* RCOSC calibration functions functions */
 extern void PowerCC26X2_calibrate(void);
@@ -132,12 +126,6 @@ PowerCC26X2_ModuleState PowerCC26X2_module = {
     .policyFxn = 0                  /* power policyFxn */
 };
 
-/*! Temperature notification to compensate the RTC when SCLK_LF is derived
- *  from SCLK_HF when SCLK_HF is configured as HPOSC.
- */
-static Temperature_NotifyObj PowerCC26X2_hposcRtcCompNotifyObj = {0};
-
-
 /* resource database */
 const PowerCC26XX_ResourceRecord resourceDB[PowerCC26X2_NUMRESOURCES] = {
     {PowerCC26XX_PERIPH  | PowerCC26XX_DOMAIN_PERIPH, PRCM_PERIPH_TIMER0},      /* PERIPH_GPT0 */
@@ -163,12 +151,6 @@ const PowerCC26XX_ResourceRecord resourceDB[PowerCC26X2_NUMRESOURCES] = {
     {PowerCC26XX_PERIPH  | PowerCC26XX_DOMAIN_PERIPH, PRCM_PERIPH_UART1},       /* PERIPH_UART1 */
 };
 
-/* Defines */
-#define TCXO_RAMP_DELAY 10
-#define CC26X2_CLOCK_FREQUENCY 48000000
-
-/* This is an approximate scaling factor previously used in test firmware. */
-#define DELAY_SCALING_FACTOR 6000000
 
 /* ****************** Power APIs ******************** */
 
@@ -270,6 +252,15 @@ int_fast16_t Power_init()
     ClockP_Params clockParams;
     uint32_t ccfgLfClkSrc;
 
+    /* CC26X2 PG1.0 trap. If we are running on PG1.0, spin forever.
+     * This hardware revision is no longer supported. This trap is
+     * provided to aid in automatically identifying PG1.0 devices
+     * in circulation and will be removed later in the year.
+     */
+    if (!((HWREG(FCFG1_BASE + FCFG1_O_TFW_FT) % 10000) >= 683)) {
+        while (1);
+    }
+
     /* if this function has already been called, just return */
     if (PowerCC26X2_module.initialized) {
         return (Power_SOK);
@@ -289,15 +280,14 @@ int_fast16_t Power_init()
      */
     if ((CCFGRead_XOSC_FREQ() == CCFGREAD_XOSC_FREQ_TCXO) &&
         (PowerCC26X2_config.enableTCXOFxn != NULL)) {
+
         /* Construct the Clock object for TCXO startup time.
          * Set timeout to TCXO startup time as specified in CCFG.
          */
         ClockP_construct(&PowerCC26X2_module.tcxoEnableClock,
                          (ClockP_Fxn)&switchToTCXO,
-                         (CCFGRead_TCXO_MAX_START()*100)/ClockP_getSystemTickPeriod(),
+                         (CCFGRead_TCXO_MAX_START()*100)/ClockP_tickPeriod,
                          NULL);
-
-        HWREG(AUX_DDI0_OSC_BASE + DDI_O_CLR + DDI_0_OSC_O_CTL0) = DDI_0_OSC_CTL0_XTAL_IS_24M;
     }
 
     /* construct the Clock object for scheduling of wakeups */
@@ -524,7 +514,7 @@ int_fast16_t Power_releaseDependency(uint_fast16_t resourceId)
         /* else resource is a power domain */
         else {
             PRCMPowerDomainOff(id);
-            while (PRCMPowerDomainsAllOff(id) != PRCM_DOMAIN_POWER_OFF) {
+            while (PRCMPowerDomainStatus(id) != PRCM_DOMAIN_POWER_OFF) {
                 ;
             }
         }
@@ -625,7 +615,7 @@ int_fast16_t Power_setDependency(uint_fast16_t resourceId)
         /* else resource is a power domain */
         else {
             PRCMPowerDomainOn(id);
-            while (PRCMPowerDomainsAllOn(id) != PRCM_DOMAIN_POWER_ON) {
+            while (PRCMPowerDomainStatus(id) != PRCM_DOMAIN_POWER_ON) {
                 ;
             }
         }
@@ -722,6 +712,7 @@ int_fast16_t Power_sleep(uint_fast16_t sleepState)
     unsigned int constraints;
     bool retainCache = false;
     uint32_t modeVIMS;
+    unsigned int swiKey;
 
     /* first validate the sleep code */
     if (sleepState != PowerCC26XX_STANDBY) {
@@ -746,7 +737,7 @@ int_fast16_t Power_sleep(uint_fast16_t sleepState)
             postEvent = PowerCC26XX_AWAKE_STANDBY;
             postEventLate = PowerCC26XX_AWAKE_STANDBY_LATE;
 
-            /* disable scheduling */
+            /* disable Task scheduling */
             PowerCC26XX_schedulerDisable();
 
             /* signal all clients registered for pre-sleep notification */
@@ -758,6 +749,9 @@ int_fast16_t Power_sleep(uint_fast16_t sleepState)
                 PowerCC26XX_schedulerRestore();
                 return (status);
             }
+
+            /* now disable Swi scheduling */
+            swiKey = SwiP_disable();
 
             /* 1. Query and save domain states before powering them off */
             if (Power_getDependencyCount(PowerCC26XX_DOMAIN_RFCORE)) {
@@ -855,7 +849,7 @@ int_fast16_t Power_sleep(uint_fast16_t sleepState)
             PowerCC26X2_module.state = Power_EXITING_SLEEP;
 
             /* 11. Wait until all power domains are back on */
-            while (PRCMPowerDomainsAllOn(poweredDomains) != PRCM_DOMAIN_POWER_ON);
+            while (PRCMPowerDomainStatus(poweredDomains) != PRCM_DOMAIN_POWER_ON);
 
             /* 12. Wait for the RTC shadow values to be updated so that
              * the early notification callbacks can read out valid RTC values.
@@ -894,7 +888,10 @@ int_fast16_t Power_sleep(uint_fast16_t sleepState)
              */
             PowerCC26X2_module.state = Power_ACTIVE;
 
-            /* 19. Re-enable scheduling */
+            /* Re-enable Swi scheduling */
+            SwiP_restore(swiKey);
+
+            /* re-enable Task scheduling */
             PowerCC26XX_schedulerRestore();
 
             /* if there was a notification error, set return status */
@@ -927,35 +924,6 @@ void Power_unregisterNotify(Power_NotifyObj * pNotifyObj)
 }
 
 /* ****************** CC26XX specific APIs ******************** */
-
-/*
- *  ======== PowerCC26X2_enableHposcRtcCompensation ========
- *  This function enabled temperature based compensation of the RTC when
- *  SCLK_LF is derived from HPOSC.
- */
-void PowerCC26X2_enableHposcRtcCompensation(void) {
-    /* If we are using HPOSC and SCLK_LF is derived from it, we need to
-     * compensate the RTC to account for HPOSC frequency drift over temperature.
-     */
-    if (OSC_IsHPOSCEnabledWithHfDerivedLfClock()) {
-        Temperature_init();
-
-        int16_t currentTemperature = Temperature_getTemperature();
-
-        OSC_HPOSCInitializeFrequencyOffsetParameters();
-
-        /* The compensation fxn will register itself with updated thresholds
-         * based on the current temperature each time it is invoked. If we
-         * call it from the init function, it will register itself for the
-         * first time and handle initial RTC compensation.
-         */
-        hposcRtcCompensateFxn(currentTemperature,
-                              currentTemperature + PowerCC26X2_HPOSC_RTC_COMPENSATION_DELTA,
-                              (uintptr_t)NULL,
-                              &PowerCC26X2_hposcRtcCompNotifyObj);
-    }
-}
-
 
 /*
  *  ======== PowerCC26XX_calibrate ========
@@ -1101,32 +1069,6 @@ void PowerCC26XX_switchXOSC_HF(void)
 /* * * * * * * * * * * internal and support functions * * * * * * * * * * */
 
 /*
- *  ======== hposcRtcCompensateFxn ========
- */
-void hposcRtcCompensateFxn(int16_t currentTemperature,
-                           int16_t thresholdTemperature,
-                           uintptr_t clientArg,
-                           Temperature_NotifyObj *notifyObject) {
-    int_fast16_t status;
-    int32_t relFreqOffset;
-
-    relFreqOffset = OSC_HPOSCRelativeFrequencyOffsetGet(currentTemperature);
-
-    OSC_HPOSCRtcCompensate(relFreqOffset);
-
-    /* Register the notification again with updated thresholds */
-    status = Temperature_registerNotifyRange(notifyObject,
-                                             currentTemperature + PowerCC26X2_HPOSC_RTC_COMPENSATION_DELTA,
-                                             currentTemperature - PowerCC26X2_HPOSC_RTC_COMPENSATION_DELTA,
-                                             hposcRtcCompensateFxn,
-                                             (uintptr_t)NULL);
-
-    if (status != Temperature_STATUS_SUCCESS) {
-        while(1);
-    }
-}
-
-/*
  *  ======== oscillatorISR ========
  */
 static void oscillatorISR(uintptr_t arg)
@@ -1225,17 +1167,6 @@ static void disableLFClockQualifiers(void)
 static unsigned int nopResourceHandler(unsigned int action)
 {
     return (0);
-}
-
-/*
- *  ======== delayUs ========
- *  Polls for an approximate number of us. Not very accurate.
- *  In this use case we only care about waiting 'at least X'
- *  and a few extra microseconds will only allow additional
- *  stabilisation time.
- */
-static void delayUs(uint32_t us) {
-    CPUdelay((CC26X2_CLOCK_FREQUENCY / DELAY_SCALING_FACTOR) * us);
 }
 
 /*
@@ -1355,39 +1286,25 @@ static unsigned int configureXOSCHF(unsigned int action)
         if ((CCFGRead_XOSC_FREQ() == CCFGREAD_XOSC_FREQ_TCXO) &&
             (PowerCC26X2_config.enableTCXOFxn != NULL)) {
 
-            /* Enable clock qualification on 48MHz signal from TCXO */
-            if (CCFGRead_TCXO_TYPE() == 0x1) {
-                /* If the selected TCXO type is clipped-sine, also enable
-                 * internal common-mode bias
-                 */
-                HWREG(AUX_DDI0_OSC_BASE + DDI_O_SET + DDI_0_OSC_O_XOSCHFCTL) = DDI_0_OSC_XOSCHFCTL_TCXO_MODE_XOSC_HF_EN |
-                                                                               DDI_0_OSC_XOSCHFCTL_TCXO_MODE;
-            }
-            else {
-                HWREG(AUX_DDI0_OSC_BASE + DDI_O_SET + DDI_0_OSC_O_XOSCHFCTL) = DDI_0_OSC_XOSCHFCTL_TCXO_MODE;
-            }
-
-            /* Wait for ~10 us for common mode bias to stabilise and clock
-             * qual to take affect.
-             */
-            delayUs(TCXO_RAMP_DELAY);
-
             /* Enable power on TCXO */
             (*(PowerCC26X2_config.enableTCXOFxn))(true);
+
+            /* Configure TCXO */
+            HWREG(AUX_DDI0_OSC_BASE + DDI_O_CLR + DDI_0_OSC_O_CTL0) = DDI_0_OSC_CTL0_XTAL_IS_24M;
+            HWREG(AUX_DDI0_OSC_BASE + DDI_O_SET + DDI_0_OSC_O_XOSCHFCTL) = DDI_0_OSC_XOSCHFCTL_BYPASS;
+            if (CCFGRead_TCXO_TYPE() == 0x1)
+            {
+                /* Selected TCXO type is clipped-sine. Enabled internal common-mode bias. */
+                HWREG( AUX_DDI0_OSC_BASE + DDI_O_SET + DDI_0_OSC_O_XOSCHFCTL ) = DDI_0_OSC_XOSCHFCTL_TCXO_MODE_XOSC_HF_EN;
+            }
 
             /* Start clock to wait for TCXO startup time before clock switch
              * can be attempted.
              */
             ClockP_start(ClockP_handle(&PowerCC26X2_module.tcxoEnableClock));
         }
-        else {
-            /* Turn on and request XOSC_HF from the hardware for regular
-             * XOSC and HPOSC. TCXO does not require this call until right
-             * before switching since we do not rely on the harware to
-             * interrupt the system once the XOSC is stable.
-             */
-            OSCHF_TurnOnXosc();
-        }
+
+        OSCHF_TurnOnXosc();
 
         PowerCC26X2_module.xoscPending = true;
 
@@ -1397,9 +1314,7 @@ static unsigned int configureXOSCHF(unsigned int action)
         {
             if (!(Power_getConstraintMask() & (1 << PowerCC26XX_SWITCH_XOSC_HF_MANUALLY))) {
 
-                /* Clearing the flag in the ISR does not always work. Clear it
-                 * again just in case
-                 * */
+                /* Clearing the flag in the ISR does not always work. Clear it again just in case */
                 HWREG(PRCM_BASE + PRCM_O_OSCICR) = PRCM_OSCICR_HFSRCPENDC_M;
 
                 /* Turn on oscillator interrupt for SCLK_HF switching */
@@ -1421,32 +1336,12 @@ static unsigned int configureXOSCHF(unsigned int action)
         OSCHF_SwitchToRcOscTurnOffXosc();
 
         /* Handle TCXO if selected in CCFG */
-        if ((CCFGRead_XOSC_FREQ() == CCFGREAD_XOSC_FREQ_TCXO) &&
-            (PowerCC26X2_config.enableTCXOFxn != NULL)) {
-            /* Disable Clock in case we have started it and are waiting for
-             * the TCXO to stabilise.
-             * If the Clock is not currently active, this should do nothing.
-             */
-            ClockP_stop(ClockP_handle(&PowerCC26X2_module.tcxoEnableClock));
+        if (CCFGRead_XOSC_FREQ() == CCFGREAD_XOSC_FREQ_TCXO) {
 
-            /* Disable clock qualification on 48MHz signal from TCXO and turn
-             * off TCXO bypass.
-             * If we do not disable clock qualificaition, it will not run the
-             * next time we switch to TCXO.
-             */
+            /* Turn off bias if clipped sine TCXO type */
             if (CCFGRead_TCXO_TYPE() == 1) {
-                /* Also turn off bias if clipped sine TCXO type. The bias
-                 * consumes a few hundred uA. That is fine while the TCXO is
-                 * running but we should not incur this penalty when not running
-                 * on TCXO.
-                 */
-                HWREG(AUX_DDI0_OSC_BASE + DDI_O_CLR + DDI_0_OSC_O_XOSCHFCTL) = DDI_0_OSC_XOSCHFCTL_TCXO_MODE |
-                                                                               DDI_0_OSC_XOSCHFCTL_BYPASS |
-                                                                               DDI_0_OSC_XOSCHFCTL_TCXO_MODE_XOSC_HF_EN;
-            }
-            else {
-                HWREG(AUX_DDI0_OSC_BASE + DDI_O_CLR + DDI_0_OSC_O_XOSCHFCTL) = DDI_0_OSC_XOSCHFCTL_TCXO_MODE |
-                                                                               DDI_0_OSC_XOSCHFCTL_BYPASS;
+                HWREG(AUX_DDI0_OSC_BASE + DDI_O_CLR + DDI_0_OSC_O_XOSCHFCTL) =
+                                             DDI_0_OSC_XOSCHFCTL_TCXO_MODE_XOSC_HF_EN;
             }
 
             /* Check if function for enabling/disabling TCXO is supported */
@@ -1484,14 +1379,8 @@ static unsigned int configureXOSCHF(unsigned int action)
  */
 static void switchToTCXO(void)
 {
-    /* Set bypass bit */
-    HWREG(AUX_DDI0_OSC_BASE + DDI_O_SET + DDI_0_OSC_O_XOSCHFCTL) = DDI_0_OSC_XOSCHFCTL_BYPASS;
-
-    /* Request XOSC_HF. In this instance, that is the TCXO and it will
-     * immediately be ready to switch to after requesting since we turned it on
-     * earlier with a GPIO and waited for it to stabilise.
-     */
-    OSCHF_TurnOnXosc();
+    /* Enable clock qualification on 48MHz signal from TCXO */
+    HWREG( AUX_DDI0_OSC_BASE + DDI_O_SET + DDI_0_OSC_O_XOSCHFCTL ) = DDI_0_OSC_XOSCHFCTL_TCXO_MODE;
 
     /* Switch to TCXO */
     switchXOSCHF();

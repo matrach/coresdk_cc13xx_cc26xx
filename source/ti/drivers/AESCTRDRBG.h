@@ -34,6 +34,8 @@
  *
  * @brief      AESCTRDRBG driver header
  *
+ * @warning    This is a beta API. It may change in future releases.
+ *
  * @anchor ti_drivers_AESCTRDRBG_Overview
  * <h3> Overview </h3>
  * AES_CTR_DRBG is a cryptographically secure deterministic random bit generator

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020, Texas Instruments Incorporated
+ * Copyright (c) 2018-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,6 +33,8 @@
  *  @file       AESCBC.h
  *
  *  @brief      AESCBC driver header
+ *
+ *  @warning     This is a beta API. It may change in future releases.
  *
  *  @anchor ti_drivers_AESCBC_Overview
  *  # Overview #
@@ -435,7 +437,7 @@ typedef enum {
  */
 typedef struct {
    CryptoKey                *key;                       /*!< A previously initialized CryptoKey. */
-   uint8_t                  *input;                     /*!<
+   const uint8_t            *input;                     /*!<
                                                          *   - Encryption: The plaintext buffer to be
                                                          *     encrypted in the CBC operation.
                                                          *   - Decryption: The ciphertext to be decrypted.

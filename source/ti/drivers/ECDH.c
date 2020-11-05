@@ -68,22 +68,11 @@ ECDH_Handle ECDH_open(uint_least8_t index, const ECDH_Params *params) {
  *  ======== ECDH_OperationGeneratePublicKey_init ========
  */
 void ECDH_OperationGeneratePublicKey_init(ECDH_OperationGeneratePublicKey *operation){
-    operation->curve = NULL;
-    operation->myPrivateKey = NULL;
-    operation->myPublicKey = NULL;
-    /* Default public key format is octet string */
-    operation->publicKeyDataFormat = ECDH_PUBLIC_KEY_DATA_FORMAT_OCTET_STRING;
+    memset(operation, 0x00, sizeof(ECDH_OperationGeneratePublicKey));
 }
 /*
  *  ======== ECDH_OperationComputeSharedSecret_init ========
  */
 void ECDH_OperationComputeSharedSecret_init(ECDH_OperationComputeSharedSecret *operation){
-    operation->curve = NULL;
-    operation->myPrivateKey = NULL;
-    operation->theirPublicKey = NULL;
-    operation->sharedSecret = NULL;
-    /* Default public key format is octet string */
-    operation->publicKeyDataFormat = ECDH_PUBLIC_KEY_DATA_FORMAT_OCTET_STRING;
-    /* Default shared secret format is octet string */
-    operation->sharedSecretDataFormat = ECDH_PUBLIC_KEY_DATA_FORMAT_OCTET_STRING;
+    memset(operation, 0x00, sizeof(ECDH_OperationComputeSharedSecret));
 }
