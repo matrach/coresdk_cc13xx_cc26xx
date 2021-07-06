@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -163,9 +163,9 @@ extern const NVS_FxnTable NVSCC26XX_fxnTable;
  *  content (such as .text or .const) in the flash regions defined by the
  *  this hardware attributes structure.
  *
- *  For CCS and IAR tools, defining and reserving flash memory regions can
- *  be done entirely within the Board.c file. For GCC, additional content is
- *  required in the application's linker script to achieve the same
+ *  For CCS and IAR tools, defining and reserving flash memory regions can be
+ *  done entirely within the ti_drivers_config.c file. For GCC, additional
+ *  content is required in the application's linker script to achieve the same
  *  result.
  *
  *  The example below defines a char array @p flashBuf. Preprocessor logic is
@@ -336,19 +336,38 @@ typedef struct
  */
 
 extern void         NVSCC26XX_close(NVS_Handle handle);
-extern int_fast16_t NVSCC26XX_control(NVS_Handle handle, uint_fast16_t cmd,
-                        uintptr_t arg);
-extern int_fast16_t NVSCC26XX_erase(NVS_Handle handle, size_t offset,
-                        size_t size);
-extern void         NVSCC26XX_getAttrs(NVS_Handle handle, NVS_Attrs *attrs);
+
+extern int_fast16_t NVSCC26XX_control(NVS_Handle handle,
+                                      uint_fast16_t cmd,
+                                      uintptr_t arg);
+
+extern int_fast16_t NVSCC26XX_erase(NVS_Handle handle,
+                                    size_t offset,
+                                    size_t size);
+
+extern void         NVSCC26XX_getAttrs(NVS_Handle handle,
+                                       NVS_Attrs *attrs);
+
 extern void         NVSCC26XX_init();
-extern int_fast16_t NVSCC26XX_lock(NVS_Handle handle, uint32_t timeout);
-extern NVS_Handle   NVSCC26XX_open(uint_least8_t index, NVS_Params *params);
-extern int_fast16_t NVSCC26XX_read(NVS_Handle handle, size_t offset,
-                        void *buffer, size_t bufferSize);
+
+extern int_fast16_t NVSCC26XX_lock(NVS_Handle handle,
+                                   uint32_t timeout);
+
+extern NVS_Handle   NVSCC26XX_open(uint_least8_t index,
+                                   NVS_Params *params);
+
+extern int_fast16_t NVSCC26XX_read(NVS_Handle handle,
+                                  size_t offset,
+                                  void *buffer,
+                                  size_t bufferSize);
+
 extern void         NVSCC26XX_unlock(NVS_Handle handle);
-extern int_fast16_t NVSCC26XX_write(NVS_Handle handle, size_t offset,
-                        void *buffer, size_t bufferSize, uint_fast16_t flags);
+
+extern int_fast16_t NVSCC26XX_write(NVS_Handle handle,
+                                    size_t offset,
+                                    void *buffer,
+                                    size_t bufferSize,
+                                    uint_fast16_t flags);
 /*! @endcond */
 
 #if defined (__cplusplus)

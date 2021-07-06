@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -50,20 +50,22 @@
 #ifndef ti_dpl_HwiP__include
 #define ti_dpl_HwiP__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  *  @brief    Number of bytes greater than or equal to the size of any RTOS
  *            HwiP object.
  *
- *  nortos:   12
- *  SysBIOS:  28
+ *  NoRTOS:   12
+ *  FreeRTOS: 12
+ *  BIOS 6.x: 28
+ *  BIOS 7.x: 20
  */
 #define HwiP_STRUCT_SIZE   (28)
 
@@ -88,7 +90,7 @@ typedef  void *HwiP_Handle;
 /*!
  *  @brief    Status codes for HwiP APIs
  */
-typedef enum HwiP_Status {
+typedef enum {
     HwiP_OK = 0,
     HwiP_FAILURE = -1
 } HwiP_Status;
@@ -110,7 +112,7 @@ typedef void (*HwiP_Fxn)(uintptr_t arg);
  *  Parameter enableInt specifies if the interrupt should be enabled
  *  upon creation of the HwiP object.  The default is true.
  */
-typedef struct HwiP_Params {
+typedef struct {
     uintptr_t  arg;       /*!< Argument passed into the Hwi function. */
     uint32_t   priority;  /*!< Device specific priority. */
     bool       enableInt; /*!< Enable interrupt on creation. */
@@ -235,6 +237,15 @@ extern void HwiP_enableInterrupt(int interruptNum);
  *      ISR (true) or at thread level (false).
  */
 extern bool HwiP_inISR(void);
+
+/*!
+ *  @brief  Function to determine whether interrupts are currently enabled.
+ *
+ *  @return Current state of interrupts.
+ *    - true  Interrupts are currently enabled.
+ *    - false Interrupts are currently disabled.
+ */
+extern bool HwiP_interruptsEnabled(void);
 
 /*!
  *  @brief  Initialize params structure to default values.

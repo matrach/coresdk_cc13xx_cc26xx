@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Texas Instruments Incorporated
+ * Copyright (c) 2018-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,12 +39,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <ti/drivers/dpl/DebugP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
 #include <ti/drivers/TRNG.h>
 
+/* Extern globals */
+extern const TRNG_Config TRNG_config[];
+extern const uint_least8_t TRNG_count;
+
 const TRNG_Params TRNG_defaultParams = {
     .returnBehavior = TRNG_RETURN_BEHAVIOR_BLOCKING,
-    .callbackFxn = NULL,
+    .cryptoKeyCallbackFxn = NULL,
+    .randomBytesCallbackFxn = NULL,
     .timeout = SemaphoreP_WAIT_FOREVER,
     .custom = NULL,
 };
@@ -54,4 +60,15 @@ const TRNG_Params TRNG_defaultParams = {
  */
 void TRNG_Params_init(TRNG_Params *params){
     *params = TRNG_defaultParams;
+}
+
+/*
+ *  ======== TRNG_open ========
+ */
+TRNG_Handle TRNG_open(uint_least8_t index, TRNG_Params *params) {
+    DebugP_assert(index <= TRNG_count);
+
+    TRNG_Config *config = (TRNG_Config*)&TRNG_config[index];
+
+    return TRNG_construct(config, params);
 }

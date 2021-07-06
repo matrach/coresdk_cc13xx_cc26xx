@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, Texas Instruments Incorporated
+ * Copyright (c) 2016-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -56,7 +56,7 @@ static bool isInitialized = false;
  */
 void ADC_close(ADC_Handle handle)
 {
-    handle->fxnTablePtr->closeFxn(handle);
+    ((ADC_FxnTable *)handle->fxnTablePtr)->closeFxn(handle);
 }
 
 /*
@@ -64,7 +64,7 @@ void ADC_close(ADC_Handle handle)
  */
 int_fast16_t ADC_control(ADC_Handle handle, uint_fast16_t cmd, void *arg)
 {
-    return (handle->fxnTablePtr->controlFxn(handle, cmd, arg));
+    return (((ADC_FxnTable *)handle->fxnTablePtr)->controlFxn(handle, cmd, arg));
 }
 
 /*
@@ -73,6 +73,16 @@ int_fast16_t ADC_control(ADC_Handle handle, uint_fast16_t cmd, void *arg)
 int_fast16_t ADC_convert(ADC_Handle handle, uint16_t *value)
 {
     return (handle->fxnTablePtr->convertFxn(handle, value));
+}
+
+/*
+ *  ======== ADC_convertChain ========
+ */
+int_fast16_t ADC_convertChain(ADC_Handle *handleList,
+                              uint16_t *dataBuffer,
+                              uint8_t channelCount)
+{
+    return (handleList[0]->fxnTablePtr->convertChainFxn(handleList, dataBuffer, channelCount));
 }
 
 /*
