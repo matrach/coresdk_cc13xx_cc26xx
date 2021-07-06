@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       ioc.h
-*  Revised:        2017-11-02 14:16:14 +0100 (Thu, 02 Nov 2017)
-*  Revision:       50156
+*  Revised:        2020-11-05 14:33:43 +0100 (Thu, 05 Nov 2020)
+*  Revision:       59279
 *
 *  Description:    Defines and prototypes for the IO Controller.
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -274,7 +274,6 @@ extern "C"
 #define IOC_IOPULL_UP           0x00004000  // Pull up
 #define IOC_IOPULL_DOWN         0x00002000  // Pull down
 #define IOC_IOPULL_M            0x00006000  // Pull config mask
-#define IOC_IOPULL_M            0x00006000
 
 //*****************************************************************************
 //

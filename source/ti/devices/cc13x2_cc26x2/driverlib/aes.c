@@ -1,12 +1,12 @@
 
 /******************************************************************************
-*  Filename:       crypto.c
-*  Revised:        2019-01-25 13:11:50 +0100 (Fri, 25 Jan 2019)
-*  Revision:       54285
+*  Filename:       aes.c
+*  Revised:        2021-01-29 17:39:02 +0100 (Fri, 29 Jan 2021)
+*  Revision:       60252
 *
 *  Description:    Driver for the aes functions of the crypto module
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -207,8 +207,20 @@ uint32_t AESWriteToKeyStore(const uint8_t *aesKey, uint32_t aesKeyLength, uint32
     // Enable key to write (e.g. Key 0).
     HWREG(CRYPTO_BASE + CRYPTO_O_KEYWRITEAREA) = 1 << keyStoreArea;
 
-    // Total key length in bytes (16 for 1 x 128-bit key and 32 for 1 x 256-bit key).
-    AESStartDMAOperation(aesKey, aesKeyLength, 0, 0);
+    if (aesKeyLength == AES_192_KEY_LENGTH_BYTES)
+    {
+        // Writing a 192-bit key to the key store RAM must be done by writing
+        // 256 bits of data with the 64 most significant bits set to zero.
+        uint8_t paddedKey[AES_256_KEY_LENGTH_BYTES] = {0};
+
+        memcpy(paddedKey, aesKey, AES_192_KEY_LENGTH_BYTES);
+        AESStartDMAOperation(paddedKey, AES_256_KEY_LENGTH_BYTES, 0, 0);
+    }
+    else
+    {
+        // Total key length in bytes (16 for 1 x 128-bit key and 32 for 1 x 256-bit key).
+        AESStartDMAOperation(aesKey, aesKeyLength, 0, 0);
+    }
 
     // Wait for the DMA operation to complete.
     uint32_t irqTrigger = AESWaitForIRQFlags(CRYPTO_IRQCLR_RESULT_AVAIL | CRYPTO_IRQCLR_DMA_IN_DONE | CRYPTO_IRQSTAT_DMA_BUS_ERR | CRYPTO_IRQSTAT_KEY_ST_WR_ERR);

@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       pka.c
-*  Revised:        2018-07-19 15:07:05 +0200 (Thu, 19 Jul 2018)
-*  Revision:       52294
+*  Revised:        2021-02-03 05:40:36 +0100 (Wed, 03 Feb 2021)
+*  Revision:       60277
 *
 *  Description:    Driver for the PKA module
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -71,65 +71,10 @@
     #define PKABigNumInvModStart            NOROM_PKABigNumInvModStart
     #undef  PKABigNumInvModGetResult
     #define PKABigNumInvModGetResult        NOROM_PKABigNumInvModGetResult
-    #undef  PKABigNumMultiplyStart
-    #define PKABigNumMultiplyStart          NOROM_PKABigNumMultiplyStart
-    #undef  PKABigNumMultGetResult
-    #define PKABigNumMultGetResult          NOROM_PKABigNumMultGetResult
-    #undef  PKABigNumAddStart
-    #define PKABigNumAddStart               NOROM_PKABigNumAddStart
-    #undef  PKABigNumAddGetResult
-    #define PKABigNumAddGetResult           NOROM_PKABigNumAddGetResult
-    #undef  PKABigNumSubStart
-    #define PKABigNumSubStart               NOROM_PKABigNumSubStart
-    #undef  PKABigNumSubGetResult
-    #define PKABigNumSubGetResult           NOROM_PKABigNumSubGetResult
-    #undef  PKAEccMultiplyStart
-    #define PKAEccMultiplyStart             NOROM_PKAEccMultiplyStart
-    #undef  PKAEccMontgomeryMultiplyStart
-    #define PKAEccMontgomeryMultiplyStart   NOROM_PKAEccMontgomeryMultiplyStart
-    #undef  PKAEccMultiplyGetResult
-    #define PKAEccMultiplyGetResult         NOROM_PKAEccMultiplyGetResult
-    #undef  PKAEccAddStart
-    #define PKAEccAddStart                  NOROM_PKAEccAddStart
-    #undef  PKAEccAddGetResult
-    #define PKAEccAddGetResult              NOROM_PKAEccAddGetResult
-    #undef  PKAEccVerifyPublicKeyWeierstrassStart
-    #define PKAEccVerifyPublicKeyWeierstrassStart NOROM_PKAEccVerifyPublicKeyWeierstrassStart
-#endif
-
-//*****************************************************************************
-//
-// Handle support for DriverLib in ROM:
-// This section will undo prototype renaming made in the header file
-//
-//*****************************************************************************
-#if !defined(DOXYGEN)
-    #undef  PKAClearPkaRam
-    #define PKAClearPkaRam                  NOROM_PKAClearPkaRam
-    #undef  PKAGetOpsStatus
-    #define PKAGetOpsStatus                 NOROM_PKAGetOpsStatus
-    #undef  PKAArrayAllZeros
-    #define PKAArrayAllZeros                NOROM_PKAArrayAllZeros
-    #undef  PKAZeroOutArray
-    #define PKAZeroOutArray                 NOROM_PKAZeroOutArray
-    #undef  PKABigNumModStart
-    #define PKABigNumModStart               NOROM_PKABigNumModStart
-    #undef  PKABigNumModGetResult
-    #define PKABigNumModGetResult           NOROM_PKABigNumModGetResult
-    #undef  PKABigNumDivideStart
-    #define PKABigNumDivideStart            NOROM_PKABigNumDivideStart
-    #undef  PKABigNumDivideGetQuotient
-    #define PKABigNumDivideGetQuotient      NOROM_PKABigNumDivideGetQuotient
-    #undef  PKABigNumDivideGetRemainder
-    #define PKABigNumDivideGetRemainder     NOROM_PKABigNumDivideGetRemainder
-    #undef  PKABigNumCmpStart
-    #define PKABigNumCmpStart               NOROM_PKABigNumCmpStart
-    #undef  PKABigNumCmpGetResult
-    #define PKABigNumCmpGetResult           NOROM_PKABigNumCmpGetResult
-    #undef  PKABigNumInvModStart
-    #define PKABigNumInvModStart            NOROM_PKABigNumInvModStart
-    #undef  PKABigNumInvModGetResult
-    #define PKABigNumInvModGetResult        NOROM_PKABigNumInvModGetResult
+    #undef  PKABigNumExpModStart
+    #define PKABigNumExpModStart            NOROM_PKABigNumExpModStart
+    #undef  PKABigNumExpModGetResult
+    #define PKABigNumExpModGetResult        NOROM_PKABigNumExpModGetResult
     #undef  PKABigNumMultiplyStart
     #define PKABigNumMultiplyStart          NOROM_PKABigNumMultiplyStart
     #undef  PKABigNumMultGetResult
@@ -1191,6 +1136,57 @@ uint32_t PKABigNumInvModStart(const uint8_t *bigNum, uint32_t bigNumLength, cons
 //
 //*****************************************************************************
 uint32_t PKABigNumInvModGetResult(uint8_t *resultBuf, uint32_t length, uint32_t resultPKAMemAddr)
+{
+    // Zero-out array in case modulo result is shorter than length
+    PKAZeroOutArray(resultBuf, length);
+
+    return PKAGetBigNumResult(resultBuf, &length, resultPKAMemAddr);
+}
+
+//*****************************************************************************
+//
+// Start the big number modular exponentiation operation.
+//
+//*****************************************************************************
+uint32_t PKABigNumExpModStart(const uint8_t *base, uint32_t baseLength, const uint8_t *exponent, uint32_t exponentLength, const uint8_t *modulus, uint32_t modulusLength, uint32_t *resultPKAMemAddr)
+{
+    uint32_t offset = 0;
+
+    // Check the arguments.
+    ASSERT(base);
+    ASSERT(exponent);
+    ASSERT(modulus);
+    ASSERT(resultPKAMemAddr);
+
+    // Make sure no operation is in progress.
+    if (HWREG(PKA_BASE + PKA_O_FUNCTION) & PKA_FUNCTION_RUN) {
+        return PKA_STATUS_OPERATION_BUSY;
+    }
+
+    offset = PKAWritePkaParam(exponent, exponentLength, offset, PKA_O_APTR);
+
+    offset = PKAWritePkaParamExtraOffset(modulus, modulusLength, offset, PKA_O_BPTR);
+
+    offset = PKAWritePkaParam(base, baseLength, offset, PKA_O_CPTR);
+
+    // Copy the result vector address location.
+    *resultPKAMemAddr = PKA_RAM_BASE + offset;
+
+    // Load D pointer with the result location in PKA RAM.
+    HWREG(PKA_BASE + PKA_O_DPTR) = offset >> 2;
+
+    // set the PKA function to ExpMod operation and the start the operation.
+    HWREG(PKA_BASE + PKA_O_FUNCTION) = PKA_FUNCTION_RUN_M | (0x04 << PKA_FUNCTION_SEQUENCER_OPERATIONS_S);
+
+    return PKA_STATUS_SUCCESS;
+}
+
+//*****************************************************************************
+//
+// Get the result of the big number inverse modulo operation.
+//
+//*****************************************************************************
+uint32_t PKABigNumExpModGetResult(uint8_t *resultBuf, uint32_t length, uint32_t resultPKAMemAddr)
 {
     // Zero-out array in case modulo result is shorter than length
     PKAZeroOutArray(resultBuf, length);
