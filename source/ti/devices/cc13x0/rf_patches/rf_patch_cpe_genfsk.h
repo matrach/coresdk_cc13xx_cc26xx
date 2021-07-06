@@ -1,7 +1,7 @@
 /******************************************************************************
 *  Filename:       rf_patch_cpe_genfsk.h
-*  Revised:        $Date: 2018-11-02 11:52:02 +0100 (fr, 02 nov 2018) $
-*  Revision:       $Revision: 18756 $
+*  Revised:        $Date: 2020-02-27 12:45:42 +0100 (Thu, 27 Feb 2020) $
+*  Revision:       $Revision: 19307 $
 *
 *  Description:    RF Core patch file for CC13x0 generic FSK
 *
@@ -71,33 +71,38 @@ extern "C"
 
 
 CPE_PATCH_TYPE patchImageGenfsk[] = {
-   0x21000569,
-   0x2100045d,
-   0x21000491,
-   0x21000495,
-   0x210004bd,
-   0x2100064d,
-   0x210006fd,
-   0x21000725,
-   0x2100052b,
-   0x210004f1,
-   0x21000767,
-   0x21000789,
+   0x21000595,
+   0x21000465,
+   0x210004a5,
+   0x210004a9,
+   0x210004d1,
+   0x21000679,
+   0x21000729,
+   0x21000751,
+   0x2100053f,
+   0x2100054f,
+   0x21000505,
+   0x21000793,
+   0x210007b5,
+   0x21000581,
    0x4710b5f8,
    0x460eb5f8,
    0x25012100,
    0x473004ad,
-   0x7803480a,
-   0xf80ff000,
-   0xd00b079b,
-   0x78204c12,
-   0xd00728ff,
-   0x702121ff,
-   0x240f490e,
-   0x43200224,
-   0x82c83160,
-   0xb5f8bdf8,
-   0x47004801,
+   0x7803480d,
+   0xd00207d8,
+   0x21814847,
+   0xf0006041,
+   0x079bf80f,
+   0x4c13d00b,
+   0x28ff7820,
+   0x21ffd007,
+   0x490f7021,
+   0x0224240f,
+   0x31604320,
+   0xbdf882c8,
+   0x4802b5f8,
+   0x00004700,
    0x2100026b,
    0x00004ce5,
    0xe0014809,
@@ -109,9 +114,9 @@ CPE_PATCH_TYPE patchImageGenfsk[] = {
    0x467082c8,
    0x47001c80,
    0x40086200,
-   0x210007f4,
+   0x21000820,
    0x08080f07,
-   0xf886f000,
+   0xf892f000,
    0x0a0a9905,
    0xd1092a6c,
    0x61782008,
@@ -128,25 +133,26 @@ CPE_PATCH_TYPE patchImageGenfsk[] = {
    0x2950b2e1,
    0x2804d00b,
    0x2806d001,
-   0x490dd107,
+   0x490fd107,
    0x07c97809,
    0x7821d103,
    0xd4000709,
-   0x490a2002,
+   0x490c2002,
    0x210c780a,
    0xd0024211,
-   0x22804908,
+   0x2280490a,
    0xbdfe600a,
-   0x4907b5fe,
-   0x48044708,
-   0x22407801,
-   0x70014391,
-   0x47004804,
+   0x4909b5fe,
+   0x22404708,
+   0x78194b05,
+   0x70194391,
+   0x1c924672,
+   0x22604710,
+   0x0000e7f6,
    0x210000c8,
    0x21000117,
    0xe000e200,
    0x0000ccf1,
-   0x0000d103,
    0x4605b5ff,
    0x4c03b085,
    0xb5ff4720,
@@ -154,12 +160,17 @@ CPE_PATCH_TYPE patchImageGenfsk[] = {
    0x47204c01,
    0x00003ff7,
    0x000041cb,
+   0x21814802,
+   0x60414a02,
+   0x00004710,
+   0x40045000,
+   0x00004c67,
    0x4603b570,
    0x29014615,
    0x2900d006,
    0x4a11d006,
    0xf7ff4628,
-   0xbd70ff67,
+   0xbd70ff55,
    0xe000480f,
    0x2405480f,
    0xd8034283,
@@ -171,14 +182,14 @@ CPE_PATCH_TYPE patchImageGenfsk[] = {
    0x4906d007,
    0x31802300,
    0xf7ff4628,
-   0xb2e0ff51,
+   0xb2e0ff3f,
    0x4902bd70,
    0x316c4b04,
    0x0000e7f6,
    0x00005c83,
    0x2386bca0,
    0x230d8300,
-   0x210007c4,
+   0x210007f0,
    0x4e1ab5f8,
    0x6b714605,
    0x09cc4819,
@@ -221,7 +232,7 @@ CPE_PATCH_TYPE patchImageGenfsk[] = {
    0xe0004313,
    0x634b4393,
    0xf7ff491d,
-   0xbd10ff35,
+   0xbd10ff29,
    0x4d1ab538,
    0x28007f28,
    0x481ad127,
@@ -266,7 +277,7 @@ CPE_PATCH_TYPE patchImageGenfsk[] = {
    0x2100026b,
    0x40046058,
    0x4c03b510,
-   0xfedcf7ff,
+   0xfed0f7ff,
    0x28006820,
    0xbd10d1fa,
    0x40041100,
@@ -280,9 +291,9 @@ CPE_PATCH_TYPE patchImageGenfsk[] = {
    0x4363490a,
    0x43597d49,
    0x689b4b09,
-   0xfef9f7ff,
+   0xfeeff7ff,
    0xb510bd10,
-   0xfef0f7ff,
+   0xfee6f7ff,
    0xd1010004,
    0xffe2f7ff,
    0xbd104620,
@@ -319,11 +330,11 @@ CPE_PATCH_TYPE patchImageGenfsk[] = {
    0xe5e0e3c1,
    0x000000ff,
 };
-#define _NWORD_PATCHIMAGE_GENFSK 247
+#define _NWORD_PATCHIMAGE_GENFSK 258
 
 #define _NWORD_PATCHSYS_GENFSK 0
 
-#define _IRQ_PATCH_0 0x21000679
+#define _IRQ_PATCH_0 0x210006a5
 
 
 #ifndef _GENFSK_SYSRAM_START
@@ -370,9 +381,11 @@ PATCH_FUN_SPEC void configureGenfskPatch(void)
    pPatchTab[65] = 6;
    pPatchTab[13] = 7;
    pPatchTab[43] = 8;
-   pPatchTab[45] = 9;
-   pPatchTab[48] = 10;
-   pParserPatchTab[0] = 11;
+   pPatchTab[44] = 9;
+   pPatchTab[45] = 10;
+   pPatchTab[48] = 11;
+   pParserPatchTab[0] = 12;
+   pPatchTab[56] = 13;
 
    pIrqPatch[1] = _IRQ_PATCH_0;
 }
